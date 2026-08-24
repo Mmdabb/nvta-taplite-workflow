@@ -1,0 +1,9 @@
+include LICENSE
+include README.md
+include CHANGELOG.md
+include RELEASING.md
+recursive-include src/nvta_taplite_workflow/dtalite4cube/resources *
+include src/nvta_taplite_workflow/dtalite4cube/qvdf_smoother/README.md
+recursive-include client *.bat *.py *.md *.txt
+global-exclude *.py[cod]
+global-exclude __pycache__

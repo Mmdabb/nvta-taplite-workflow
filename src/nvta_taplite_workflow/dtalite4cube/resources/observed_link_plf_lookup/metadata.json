@@ -1,0 +1,52 @@
+{
+  "created_utc": "2026-08-19T20:35:01.436087+00:00",
+  "format": "NumPy .npy structured array sorted by packed_key",
+  "key_definition": "(uint64(from_node_id) << 32) | uint64(to_node_id)",
+  "unit": "dimensionless",
+  "record_dtype": [
+    [
+      "packed_key",
+      "<u8"
+    ],
+    [
+      "from_node_id",
+      "<u4"
+    ],
+    [
+      "to_node_id",
+      "<u4"
+    ],
+    [
+      "plf_am",
+      "<f4"
+    ],
+    [
+      "plf_md",
+      "<f4"
+    ],
+    [
+      "plf_pm",
+      "<f4"
+    ]
+  ],
+  "precedence": [
+    "actual direct",
+    "virtual direct"
+  ],
+  "actual_rows": 5581,
+  "virtual_rows": 221,
+  "combined_rows": 5802,
+  "overlapping_node_pairs": 0,
+  "lookup_sha256": "A749C13B5C68D0AD0541196E12358C7351B9488BBD04CA38990164D9C1C410FA",
+  "audit_sha256": "DDE2B096145ADDA51A7FEAE934A1FE4E15EF51C632357FB8CFB02B770CCF4971",
+  "sources": {
+    "actual": {
+      "path": "cbi-resources/actual/observed-link-plf/observed_link_plf_overrides.npy",
+      "sha256": "8D896F636A40199BB7B1E26A9FA6B0505D6B198E66D70999DACD602B2300666F"
+    },
+    "virtual": {
+      "path": "cbi-resources/virtual/observed-link-plf/observed_link_plf_overrides.npy",
+      "sha256": "512415E89A4AAB15574F523AB7C23529C0AACE2589B56A67E88E5635D3ACACC1"
+    }
+  }
+}

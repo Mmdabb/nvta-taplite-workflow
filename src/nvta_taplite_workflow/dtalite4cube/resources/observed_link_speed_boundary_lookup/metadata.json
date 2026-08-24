@@ -1,0 +1,47 @@
+{
+  "status": "PASS",
+  "created_utc": "2026-08-21T00:22:28.223851+00:00",
+  "policy": "retain baseline actual/virtual; replace only assignment fallbacks",
+  "speed_unit": "mph",
+  "assignment_boundary_logic": {
+    "AM_start": "AM speed_mph",
+    "AM_end_and_MD_start": "mean of available AM and MD speed_mph",
+    "MD_end_and_PM_start": "mean of available MD and PM speed_mph",
+    "PM_end": "PM speed_mph",
+    "missing_adjacent_period_rule": "mean of the available adjacent value; blank only when both are missing",
+    "missing_terminal_period_rule": "closest available modeled period speed"
+  },
+  "node_pairs": 49336,
+  "complete_six_boundaries": 49336,
+  "stage2_anchor_source_counts": {
+    "actual": 5581,
+    "stage1_assignment_speed_mph": 43534,
+    "virtual": 214,
+    "virtual_partial_assignment_fallback": 7
+  },
+  "sources": {
+    "stage1_assignment": "auto-cal-v1-mode2-hybrid-pass1/assignment",
+    "baseline_lookup": {
+      "path": "baseline/observed_link_speed_boundaries.npy",
+      "sha256": "54B9CD59A6CEB5825382F17CEA3C10BFEE78CCDABEFDB188CB616C9A8F31D97E"
+    },
+    "baseline_audit": {
+      "path": "baseline/hybrid_speed_boundary_audit.csv",
+      "sha256": "1521590D9DF7750FEAC809B167F746BF643AB738AD5ABAC4BAC1B6E97F1ABCD0"
+    }
+  },
+  "products": {
+    "lookup": {
+      "path": "observed_link_speed_boundaries.npy",
+      "sha256": "5B33E5F7E4C13F4F2AB261B45BDCF6BDBE9447A567BAC786FEBEE13EAA6EF4AA"
+    },
+    "audit": {
+      "path": "hybrid_speed_boundary_audit.csv",
+      "sha256": "F8902D8BB13967B4CE85C369D97830AF2766D50475BF667DEFF8DD2D38D7AE60"
+    },
+    "completeness": {
+      "path": "boundary_completeness_report.csv",
+      "sha256": "2B7F680732FF811E1F3908540E517413498966A64F234BDC1DE973AFEDE80520"
+    }
+  }
+}

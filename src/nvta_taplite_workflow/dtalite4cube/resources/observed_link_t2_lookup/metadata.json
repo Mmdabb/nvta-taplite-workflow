@@ -1,0 +1,13 @@
+{
+  "status": "PASS",
+  "created_utc": "2026-08-19T21:45:05.627368+00:00",
+  "hierarchy": [
+    "actual direct",
+    "virtual direct"
+  ],
+  "no_episode_rule": "NaN triplet protects the direct matched link-period from completion",
+  "actual_rows": 5581,
+  "virtual_rows": 221,
+  "combined_rows": 5802,
+  "lookup_sha256": "4A33C1A770DA317D532E82517D4DB303089CE4A3BDE5089C62035D25450153CA"
+}

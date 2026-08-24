@@ -1,0 +1,7 @@
+{
+  "status": "PASS",
+  "scope": "actual CBI daily accepted episodes only",
+  "source_manifest": "tmc-observation-coverage-2026-08-19/actual/manifest.json",
+  "source_manifest_sha256": "D68C7B10346838FD35D480FACD90A2F5D0E57F2F6A88346F8A1FABFEB935BE07",
+  "installed_link_qvdf_sha256": "C95DCF67E237669D6F35C16DF39FB12A935AA50F36752B06650B7E078636914C"
+}

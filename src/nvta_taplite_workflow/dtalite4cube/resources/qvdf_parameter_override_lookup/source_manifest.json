@@ -1,0 +1,70 @@
+{
+  "status": "PASS",
+  "created_utc": "2026-08-24T03:04:32.081027+00:00",
+  "schema": "mode15_link_qvdf_node_pair_dict-compatible",
+  "source_run": "refined-volume-floor-odme-scenarios-2026-08-23/stable-od",
+  "output_dictionary": "qvdf_node_pair_overrides.npy",
+  "output_sha256": "CFC0913E508D429D9DE3A9F63B8545AB1639F4225B75C6DF6085C55A52AF313F",
+  "dictionary_node_pairs": 49336,
+  "parameters": [
+    "plf",
+    "qdf",
+    "n",
+    "s",
+    "cp",
+    "cd",
+    "alpha",
+    "beta"
+  ],
+  "period_sequence": {
+    "am": 1,
+    "md": 2,
+    "pm": 3
+  },
+  "fallback_dictionary": "mode15_link_qvdf_node_pair_dict.npy",
+  "fallback_dictionary_sha256": "BC482301B7EC0CF8B273C9C17E1AB71DF38A92CBA614E088F956603DE0B137C1",
+  "fallback_parameter_cells": 0,
+  "nearest_calibrated_period_fill_cells": 112,
+  "fallback_policy": "only period/link combinations absent from that period network; use the original dictionary when available, otherwise the nearest calibrated period on the same directed pair; all network-present values come from that period's link_calibrated.csv",
+  "periods": [
+    {
+      "period": "AM",
+      "sequence": 1,
+      "calibrated_link_csv": "stable-od/assignment/am/link_calibrated.csv",
+      "calibrated_link_sha256": "FC9A4D78ABC01FE127E3640075093B6BD564147B43B448BC3FCF1458E3491C0A",
+      "network_pairs": 49329,
+      "dictionary_pairs_matched": 49329,
+      "maximum_absolute_parameter_error": 0.0,
+      "calibration_status": "complete",
+      "guardrails_pass": true,
+      "final_objective": 0.999377077719,
+      "final_relative_gap_pct": 0.297453785672
+    },
+    {
+      "period": "MD",
+      "sequence": 2,
+      "calibrated_link_csv": "stable-od/assignment/md/link_calibrated.csv",
+      "calibrated_link_sha256": "095A6B4E25AE63ED7D4B26DCDE84DD86CF420A6329C01DA2F0F9BC93A8166711",
+      "network_pairs": 49336,
+      "dictionary_pairs_matched": 49336,
+      "maximum_absolute_parameter_error": 0.0,
+      "calibration_status": "complete",
+      "guardrails_pass": true,
+      "final_objective": 0.961542833073,
+      "final_relative_gap_pct": 0.307983823789
+    },
+    {
+      "period": "PM",
+      "sequence": 3,
+      "calibrated_link_csv": "stable-od/assignment/pm/link_calibrated.csv",
+      "calibrated_link_sha256": "8C086C0D330A2911662FA06A4D99866A32940E4CC706B37004335E15D7DE2806",
+      "network_pairs": 49329,
+      "dictionary_pairs_matched": 49329,
+      "maximum_absolute_parameter_error": 0.0,
+      "calibration_status": "complete",
+      "guardrails_pass": true,
+      "final_objective": 0.934013045028,
+      "final_relative_gap_pct": 0.344620183944
+    }
+  ]
+}

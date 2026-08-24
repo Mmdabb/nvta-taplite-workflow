@@ -1,0 +1,89 @@
+{
+  "created_at": "2026-08-19T14:33:10.766432-07:00",
+  "format": "NumPy .npy structured array, sorted by packed_key",
+  "key_definition": "(uint64(from_node_id) << 32) | uint64(to_node_id)",
+  "record_dtype": [
+    [
+      "packed_key",
+      "<u8"
+    ],
+    [
+      "from_node_id",
+      "<u4"
+    ],
+    [
+      "to_node_id",
+      "<u4"
+    ],
+    [
+      "t0_hour",
+      "<f4"
+    ],
+    [
+      "t2_hour",
+      "<f4"
+    ],
+    [
+      "t3_hour",
+      "<f4"
+    ]
+  ],
+  "time_unit": "decimal hour",
+  "load_pattern": "numpy.load(path, mmap_mode='r', allow_pickle=False)",
+  "periods": {
+    "AM": {
+      "source_path": "period_link_files/am/link.csv",
+      "lookup_path": "am_node_pair_boundaries.npy",
+      "rows": 49329,
+      "dtype": "[('packed_key', '<u8'), ('from_node_id', '<u4'), ('to_node_id', '<u4'), ('t0_hour', '<f4'), ('t2_hour', '<f4'), ('t3_hour', '<f4')]",
+      "source_size_bytes": 66623956,
+      "lookup_size_bytes": 1381468,
+      "compression_ratio_vs_source": 0.02073530428004005,
+      "minimum_from_node_id": 1,
+      "maximum_from_node_id": 54554,
+      "minimum_to_node_id": 1,
+      "maximum_to_node_id": 54554,
+      "max_float32_round_trip_error_minutes": 5.721952533122021e-05,
+      "protected_no_congestion_rows": 4944,
+      "rows_with_boundaries": 44385,
+      "source_sha256": "fc78813546b15351fd782e83ac27f762f35778ba4dd896cda0d0410ce1f4a96b",
+      "lookup_sha256": "6159bd436ab2f7528d7e247ca27e3f40a2e405696729ff6a0ebef2ef4112d171"
+    },
+    "MD": {
+      "source_path": "period_link_files/md/link.csv",
+      "lookup_path": "md_node_pair_boundaries.npy",
+      "rows": 49336,
+      "dtype": "[('packed_key', '<u8'), ('from_node_id', '<u4'), ('to_node_id', '<u4'), ('t0_hour', '<f4'), ('t2_hour', '<f4'), ('t3_hour', '<f4')]",
+      "source_size_bytes": 65978574,
+      "lookup_size_bytes": 1381664,
+      "compression_ratio_vs_source": 0.020941101273270927,
+      "minimum_from_node_id": 1,
+      "maximum_from_node_id": 54554,
+      "minimum_to_node_id": 1,
+      "maximum_to_node_id": 54554,
+      "max_float32_round_trip_error_minutes": 5.72189133407619e-05,
+      "protected_no_congestion_rows": 5559,
+      "rows_with_boundaries": 43777,
+      "source_sha256": "75123f3ccbdb7a5446a40a671e2d96f75c32f88aa71855afc75e6432802b5618",
+      "lookup_sha256": "334cb9aff88d234875aa735987df332af05549997426e4ce4953c22dbeb2f530"
+    },
+    "PM": {
+      "source_path": "period_link_files/pm/link.csv",
+      "lookup_path": "pm_node_pair_boundaries.npy",
+      "rows": 49329,
+      "dtype": "[('packed_key', '<u8'), ('from_node_id', '<u4'), ('to_node_id', '<u4'), ('t0_hour', '<f4'), ('t2_hour', '<f4'), ('t3_hour', '<f4')]",
+      "source_size_bytes": 67239756,
+      "lookup_size_bytes": 1381468,
+      "compression_ratio_vs_source": 0.020545404715626867,
+      "minimum_from_node_id": 1,
+      "maximum_from_node_id": 54554,
+      "minimum_to_node_id": 1,
+      "maximum_to_node_id": 54554,
+      "max_float32_round_trip_error_minutes": 5.721914099865444e-05,
+      "protected_no_congestion_rows": 3595,
+      "rows_with_boundaries": 45734,
+      "source_sha256": "1d54793a5e590fd0b4111de9f2996d00984732ba8bcb6263bb3f75926bb79424",
+      "lookup_sha256": "98b27908fd431e488020c4982b74d1841d56a2bfe1bb1d08a4c82f67fae0e1f4"
+    }
+  }
+}

@@ -1,0 +1,4 @@
+# Installed from conda-forge with --override-channels.
+python=3.11
+vs2015_runtime
+pip
