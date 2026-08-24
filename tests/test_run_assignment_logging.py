@@ -25,12 +25,12 @@ class RunAssignmentLoggingTests(unittest.TestCase):
             scenario.mkdir()
 
             argv = ["--scenario-dir", str(scenario), "--output-dir", str(output)]
-            self.assertEqual(preferred_run_log_dirs(argv)[0], output / "logs")
+            self.assertEqual(preferred_run_log_dirs(argv)[0], output.resolve() / "logs")
 
             config = build_config(build_arg_parser().parse_args(argv))
             self.assertEqual(
                 config.conversion_cache_dir,
-                output / ".dtalite_conversion_cache",
+                output.resolve() / ".dtalite_conversion_cache",
             )
 
     def test_early_failure_is_logged_under_requested_output(self) -> None:
@@ -75,10 +75,10 @@ class RunAssignmentLoggingTests(unittest.TestCase):
                 "cache",
             ]
             config = build_config(build_arg_parser().parse_args(argv))
-            self.assertEqual(config.output_dir, scenario / "assignment-output")
+            self.assertEqual(config.output_dir, scenario.resolve() / "assignment-output")
             self.assertEqual(
                 config.conversion_cache_dir,
-                scenario / "assignment-output" / "cache",
+                scenario.resolve() / "assignment-output" / "cache",
             )
 
     def test_logs_use_output_then_callers_folder_without_local_appdata(self) -> None:
@@ -89,7 +89,10 @@ class RunAssignmentLoggingTests(unittest.TestCase):
             candidates = preferred_run_log_dirs(
                 ["--scenario-dir", str(scenario), "--output-dir", "output"]
             )
-            self.assertEqual(candidates, [output / "logs", Path.cwd().resolve() / "logs"])
+            self.assertEqual(
+                candidates,
+                [output.resolve() / "logs", Path.cwd().resolve() / "logs"],
+            )
             self.assertNotIn(
                 "localappdata",
                 (

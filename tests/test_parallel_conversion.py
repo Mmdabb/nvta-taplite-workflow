@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 from uuid import uuid4
 
 import numpy as np
@@ -102,15 +103,22 @@ class DemandConversionTests(unittest.TestCase):
                 chunks_per_mode=1,
                 adaptive=False,
             )
-            parallel = get_gmns_demand_from_omx(
-                root,
-                ["am"],
-                output_base_dir=parallel_dir,
-                conversion_workers=2,
-                reserve_cores=0,
-                chunks_per_mode=3,
-                adaptive=False,
-            )
+            # GitHub-hosted Windows runners can expose only one safe physical
+            # core.  Pin the planner capacity so this test exercises the
+            # parallel implementation instead of its correct serial fallback.
+            with patch(
+                "nvta_taplite_workflow.dtalite4cube.parallel_utils._cpu_counts",
+                return_value=(8, 4),
+            ):
+                parallel = get_gmns_demand_from_omx(
+                    root,
+                    ["am"],
+                    output_base_dir=parallel_dir,
+                    conversion_workers=2,
+                    reserve_cores=0,
+                    chunks_per_mode=3,
+                    adaptive=False,
+                )
 
             self.assertFalse(serial["parallel"])
             self.assertTrue(parallel["parallel"])
