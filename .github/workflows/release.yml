@@ -35,7 +35,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: python -m pip install --pre --only-binary=:all: (Get-ChildItem dist\*.whl)
+      - run: >-
+          python -m pip install --pre --only-binary=:all:
+          (Resolve-Path dist\*.whl)
       - run: python -m nvta_taplite_workflow doctor
       - run: python -m nvta_taplite_workflow --help
 
@@ -53,4 +55,3 @@ jobs:
           name: python-package-distributions
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
-
