@@ -43,6 +43,21 @@ def speed_class_series(speed_series):
     return lower + "_" + upper
 
 
+def _flatten_summary_columns(frame):
+    """Flatten pandas aggregation columns so CSV output has one header row."""
+
+    if not isinstance(frame.columns, pd.MultiIndex):
+        return frame
+    frame = frame.copy()
+    frame.columns = [
+        str(column[0])
+        if len(column) < 2 or column[1] in ("", "sum")
+        else f"{column[0]}_{column[1]}"
+        for column in frame.columns
+    ]
+    return frame
+
+
 def original_period_duration_hours(start_hour: int, end_hour: int) -> float:
     if end_hour < start_hour:
         end_hour += 24
@@ -234,7 +249,7 @@ def spd_cls_stats(bd_link_perf, nb_link_perf, period_name, output_folder):
 
 
 def performance_summary(link_performance_combined, network_dir, time_duration_dict, length_unit='mile',
-                        speed_unit='mph', developer_mode=0):
+                        speed_unit='mph', developer_mode=0, output_filename='statistics_data.csv'):
     print("Generating performance summary ...")
 
     if length_unit not in {'mile', 'meter'} or speed_unit not in {'mph', 'kph'}:
@@ -512,7 +527,7 @@ def performance_summary(link_performance_combined, network_dir, time_duration_di
 
         #==========================================================================================================
 
-        aggregate_stats['district'] = agg_by_district
+        aggregate_stats['district'] = _flatten_summary_columns(agg_by_district)
 
     #         print("Aggregate stats by time period and district:")
     #         print(agg_by_district)
@@ -653,7 +668,7 @@ def performance_summary(link_performance_combined, network_dir, time_duration_di
     #     print("Aggregate stats by time period:")
     #     print(agg_by_time)
     agg_by_time['jur_name'] = 'overall'
-    aggregate_stats['time'] = agg_by_time
+    aggregate_stats['time'] = _flatten_summary_columns(agg_by_time)
     #     agg_by_time.to_csv(os.path.join(network_dir, 'agg_by_time.csv'), index=False)
 
     link_performance_combined['overall_flag'] = 1
@@ -787,7 +802,7 @@ def performance_summary(link_performance_combined, network_dir, time_duration_di
 
     # ==================================================================================================
 
-    aggregate_stats['overall'] = overall_agg
+    aggregate_stats['overall'] = _flatten_summary_columns(overall_agg)
 
     # overall_agg = link_performance_combined.agg(aggregations).reset_index()
     #     overall_agg.to_csv(os.path.join(network_dir, 'overall_agg.csv'), index=False)
@@ -816,7 +831,7 @@ def performance_summary(link_performance_combined, network_dir, time_duration_di
                                'trip_hov_mile_over_hour', 'trip_hov_delay_over_hour'
                                ]
     statistics_data = statistics_data[statistics_data_columns]
-    statistics_data_dir = os.path.join(network_dir, 'statistics_data.csv')
+    statistics_data_dir = os.path.join(network_dir, output_filename)
     statistics_data.to_csv(statistics_data_dir, index=False, float_format="%.2f")
     print(f"Performance statistics saved to: {statistics_data_dir}")
     print('============================================================================================================')

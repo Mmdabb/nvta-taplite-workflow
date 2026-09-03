@@ -12,6 +12,7 @@ import pickle
 import shutil
 import tempfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from pathlib import Path
 from .mapclass import Mapping, DependentMapping
 from .netclass import Node, Link, Network
 from .congestion_boundaries import BOUNDARY_FIELDS, apply_congestion_boundaries
@@ -974,11 +975,19 @@ def district_id_map(net_dir, time_period, link_filename=None, jurisdiction_dir=N
         node_generation = False
 
     lookup_dir = jurisdiction_dir or net_dir
-    link_taz_jurname_csv_path = os.path.join(lookup_dir, taz_jurisdiction_file_name)
+    link_taz_jurname_csv_path = Path(lookup_dir) / taz_jurisdiction_file_name
+    if not link_taz_jurname_csv_path.is_file():
+        packaged_lookup = Path(__file__).resolve().parents[1] / "resources" / taz_jurisdiction_file_name
+        if packaged_lookup.is_file():
+            link_taz_jurname_csv_path = packaged_lookup
+            print(f"Using packaged jurisdiction lookup: {packaged_lookup}")
     try:
         link_taz_jurname = pd.read_csv(link_taz_jurname_csv_path)
     except FileNotFoundError:
-        print(f"{taz_jurisdiction_file_name} not found in directory: {net_dir}")
+        print(
+            f"{taz_jurisdiction_file_name} not found in source directory or "
+            "packaged resources."
+        )
         return None
 
     link_net[pair_field] = link_net[from_node_id_field].astype(str) + '->' + link_net[to_node_id_field].astype(str)

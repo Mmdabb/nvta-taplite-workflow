@@ -74,6 +74,18 @@ python -m nvta_taplite_workflow doctor
 python -m nvta_taplite_workflow version
 ```
 
+Postprocessing writes two daily link-performance files and two matching
+statistics files under the DTALite output folder:
+
+- `link_performance_combined_processed.csv` and `statistics_data.csv` retain
+  the established NVTA jurisdiction/TAZ-range scope.
+- `link_performance_combined_processed_regional.csv` and
+  `statistics_data_regional.csv` cover all regional roadway links without the
+  NVTA jurisdiction/TAZ-range filter.
+
+Both postprocessed link-performance files include the source network's
+`STREETNAME` and full WKT `geometry` fields.
+
 The files in `client` are permanent thin launchers. They contain no workflow
 logic and do not need to change when conversion, assignment, smoothing, or
 postprocessing internals change.

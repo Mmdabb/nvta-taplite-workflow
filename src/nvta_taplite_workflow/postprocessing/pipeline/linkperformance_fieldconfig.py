@@ -25,6 +25,12 @@ FFTT_FIELD = "fftt"
 SPEED_RATIO_FIELD = "speed_ratio"
 PAIR_FIELD = "pair"
 GEOMETRY_FIELD = "geometry"
+STREET_NAME_FIELD = "STREETNAME"
+
+JURISDICTION_LINK_PERFORMANCE_FILENAME = "link_performance_combined_processed.csv"
+REGIONAL_LINK_PERFORMANCE_FILENAME = "link_performance_combined_processed_regional.csv"
+JURISDICTION_STATISTICS_FILENAME = "statistics_data.csv"
+REGIONAL_STATISTICS_FILENAME = "statistics_data_regional.csv"
 
 link_required_fields_mapping = {
     "link_id": LINK_ID_FIELD,
