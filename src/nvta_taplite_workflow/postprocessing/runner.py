@@ -13,6 +13,12 @@ from .pipeline import (
     time_period_duration,
 )
 from .pipeline.linkperformance_fieldconfig import LINK_FILENAME, LINK_PERFORMANCE_FILENAME
+from .pipeline.linkperformance_fieldconfig import (
+    JURISDICTION_LINK_PERFORMANCE_FILENAME,
+    JURISDICTION_STATISTICS_FILENAME,
+    REGIONAL_LINK_PERFORMANCE_FILENAME,
+    REGIONAL_STATISTICS_FILENAME,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -136,19 +142,37 @@ def preprocess_and_summarize_scenario(
     network_path = prepare_dtalite_outputs(scenario_dir, time_periods)
     logger.info("Generating performance summary for: %s", network_path)
 
-    combined_link_performance = link_performance_preprocess(
+    jurisdiction_link_performance = link_performance_preprocess(
         str(network_path),
         time_periods,
         period_range_list=period_range_list,
+        filter_to_nvta_jurisdictions=True,
+        output_filename=JURISDICTION_LINK_PERFORMANCE_FILENAME,
     )
 
     performance_summary(
-        combined_link_performance,
+        jurisdiction_link_performance,
         str(network_path),
         time_duration_dict,
+        output_filename=JURISDICTION_STATISTICS_FILENAME,
     )
 
-    return combined_link_performance
+    regional_link_performance = link_performance_preprocess(
+        str(network_path),
+        time_periods,
+        period_range_list=period_range_list,
+        filter_to_nvta_jurisdictions=False,
+        output_filename=REGIONAL_LINK_PERFORMANCE_FILENAME,
+    )
+
+    performance_summary(
+        regional_link_performance,
+        str(network_path),
+        time_duration_dict,
+        output_filename=REGIONAL_STATISTICS_FILENAME,
+    )
+
+    return jurisdiction_link_performance
 
 
 def run_comparison(config: PostprocessingConfig, time_duration_dict: dict) -> None:

@@ -25,6 +25,7 @@ from .linkperformance_fieldconfig import (
     SEVERE_CONGESTION_FIELD,
     SPEED_FIELD,
     SPEED_RATIO_FIELD,
+    STREET_NAME_FIELD,
     TAZ_FIELD,
     TO_NODE_ID_FIELD,
     TOLL_GROUP_FIELD,
@@ -134,10 +135,20 @@ def _add_hov_flag(df: pd.DataFrame, time_period: str) -> pd.DataFrame:
     return df
 
 
-def _filter_regional_links(df: pd.DataFrame) -> pd.DataFrame:
-    if TAZ_FIELD not in df.columns or FACILITY_TYPE_FIELD not in df.columns:
-        return df
-    return df[(df[TAZ_FIELD] > 1404) & (df[TAZ_FIELD] < 2820) & (df[FACILITY_TYPE_FIELD] > 0)].copy()
+def _filter_analysis_links(
+    df: pd.DataFrame,
+    *,
+    filter_to_nvta_jurisdictions: bool,
+) -> pd.DataFrame:
+    """Keep roadway links, optionally limited to the legacy NVTA TAZ range."""
+
+    mask = pd.Series(True, index=df.index)
+    if FACILITY_TYPE_FIELD in df.columns:
+        mask &= pd.to_numeric(df[FACILITY_TYPE_FIELD], errors="coerce").fillna(0) > 0
+    if filter_to_nvta_jurisdictions and TAZ_FIELD in df.columns:
+        taz = pd.to_numeric(df[TAZ_FIELD], errors="coerce")
+        mask &= (taz > 1404) & (taz < 2820)
+    return df.loc[mask].copy()
 
 
 def _ensure_performance_columns(df: pd.DataFrame, length_unit: str, speed_unit: str) -> pd.DataFrame:
@@ -239,6 +250,8 @@ def link_performance_preprocess(
     speed_unit="mph",
     developer_mode=0,
     period_range_list=None,
+    filter_to_nvta_jurisdictions=True,
+    output_filename="link_performance_combined_processed.csv",
 ):
     if length_unit not in {"mile", "meter"} or speed_unit not in {"mph", "kph"}:
         raise ValueError("Invalid units. Length must be 'mile' or 'meter', and speed must be 'mph' or 'kph'.")
@@ -280,10 +293,14 @@ def link_performance_preprocess(
             TOLL_GROUP_FIELD,
             period_limit_field(period_key),
             GEOMETRY_FIELD,
+            STREET_NAME_FIELD,
         ]
         link_performance_df = _merge_missing_fields(link_performance_df, link_df, required_fields)
         link_performance_df = _add_hov_flag(link_performance_df, period_key)
-        link_performance_df = _filter_regional_links(link_performance_df)
+        link_performance_df = _filter_analysis_links(
+            link_performance_df,
+            filter_to_nvta_jurisdictions=filter_to_nvta_jurisdictions,
+        )
 
         if link_performance_df.empty or pd.to_numeric(link_performance_df.get(VOLUME_FIELD, 0), errors="coerce").sum() < 0.5:
             logger.warning("%s link performance is empty after filtering or has very low volume.", period_key)
@@ -314,7 +331,7 @@ def link_performance_preprocess(
         ignore_index=True,
         sort=False,
     )
-    output_path = Path(network_dir) / "link_performance_combined_processed.csv"
+    output_path = Path(network_dir) / output_filename
     output_path.parent.mkdir(parents=True, exist_ok=True)
     combined.to_csv(output_path, index=False)
     logger.info("Processed link performance data saved to: %s", output_path)

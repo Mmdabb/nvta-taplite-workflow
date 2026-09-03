@@ -14,7 +14,7 @@ from .api import (
 try:
     __version__ = version("nvta-taplite-workflow")
 except PackageNotFoundError:
-    __version__ = "0.1.0rc1"
+    __version__ = "0.1.0rc2"
 
 __all__ = [
     "AssignmentConfig",
@@ -23,4 +23,3 @@ __all__ = [
     "run_postprocessing",
     "__version__",
 ]
-
