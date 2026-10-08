@@ -57,6 +57,7 @@ Issues = "https://github.com/Mmdabb/nvta-taplite-workflow/issues"
 nvta-taplite = "nvta_taplite_workflow.cli:main"
 nvta-taplite-assignment = "nvta_taplite_workflow.assignment_cli:main"
 nvta-taplite-postprocess = "nvta_taplite_workflow.postprocessing_cli:main"
+nvta-taplite-transfer = "nvta_taplite_workflow.future_attribute_transfer_cli:main"
 
 [tool.setuptools]
 include-package-data = true

@@ -69,10 +69,29 @@ false`.
 
 ```powershell
 python -m nvta_taplite_workflow assignment --scenario-dir "C:\path\to\scenario"
+python -m nvta_taplite_workflow transfer --base-network "C:\path\to\2025.shp" `
+  --future-network "C:\path\to\2050.shp" --method simple `
+  --output-dir "C:\path\to\transfer-results"
 python -m nvta_taplite_workflow postprocess "C:\path\to\scenario"
 python -m nvta_taplite_workflow doctor
 python -m nvta_taplite_workflow version
 ```
+
+### Future-network QVDF transfer
+
+The `transfer` command creates an assignment-ready QVDF dictionary for a
+future network and preserves the evidence for every transferred value.
+
+- `--method simple` copies exact directed 2025 node pairs. Missing pairs are
+  written to `missing_2025_node_pairs.csv` and receive QVDF values from their
+  link type. No other attributes are inferred.
+- `--method framework` adds constrained directed replacement-path recovery and
+  conservative geometry recovery. Borderline geometry candidates are retained
+  for review but still receive the safe link-type fallback.
+
+Each run writes the complete `future_qvdf_node_pair_overrides.npy`, a CSV and
+GeoPackage crosswalk, the missing-pair log, and a JSON summary. Pass the
+generated dictionary to assignment with `--qvdf-override-dictionary`.
 
 Postprocessing writes two daily link-performance files and two matching
 statistics files under the DTALite output folder:

@@ -12,6 +12,7 @@ USAGE = """usage: python -m nvta_taplite_workflow COMMAND [arguments]
 
 commands:
   assignment   Run conversion, TAPLite assignment, smoothing, and aggregation
+  transfer     Transfer calibrated 2025 QVDF attributes to a future network
   postprocess  Run NVTA postprocessing
   doctor       Validate the installed environment and packaged resources
   version      Print the installed workflow version
@@ -33,6 +34,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         from .postprocessing_cli import main as postprocessing_main
 
         return postprocessing_main(command_arguments)
+    if command in {"transfer", "transfer-attributes"}:
+        from .future_attribute_transfer_cli import main as transfer_main
+
+        return transfer_main(command_arguments)
     if command == "doctor":
         from .doctor import main as doctor_main
 
