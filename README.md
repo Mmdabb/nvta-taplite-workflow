@@ -104,7 +104,8 @@ when all input fingerprints still match. Corridor fits supply `n`, `s`, `cp`,
 `cd`, `alpha`, and `beta`; `PLF`/`QDF` and unavailable corridor periods retain
 the link-type fallback. Pass the generated NPY dictionary to assignment with
 `--qvdf-override-dictionary`. The packaged base-year dictionary is never
-modified by transfer.
+modified by transfer: it is treated as read-only, checked by hash before and
+after processing, and cannot share a path with the generated future dictionary.
 
 Postprocessing writes two daily link-performance files and two matching
 statistics files under the DTALite output folder:

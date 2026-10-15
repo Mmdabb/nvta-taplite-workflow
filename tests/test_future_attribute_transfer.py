@@ -336,6 +336,8 @@ class FutureAttributeTransferTests(unittest.TestCase):
             self.assertEqual(transferred["QVDF_plf1"], fallback["QVDF_plf1"])
             self.assertEqual(transferred["QVDF_n2"], fallback["QVDF_n2"])
             self.assertTrue((result_dir / "expanded_node_pair_qvdf.csv").is_file())
+            self.assertFalse(summary["base_dictionary_modified"])
+            self.assertIn("read-only input", summary["base_dictionary_policy"])
             self.assertEqual(dictionary_path.read_bytes(), source_bytes)
 
             reused = run_transfer(
@@ -350,6 +352,29 @@ class FutureAttributeTransferTests(unittest.TestCase):
             )
             self.assertEqual(reused["expanded_dictionary_action"], "reused")
             self.assertEqual(reused["corridor_dictionary"]["action"], "reused")
+            self.assertFalse(reused["base_dictionary_modified"])
+            self.assertEqual(dictionary_path.read_bytes(), source_bytes)
+
+    def test_rejects_output_path_that_would_replace_base_dictionary(self) -> None:
+        with tempfile.TemporaryDirectory(
+            dir=Path.cwd(), ignore_cleanup_errors=True
+        ) as temporary_directory:
+            root = Path(temporary_directory)
+            dictionary_path = root / "future_qvdf_node_pair_overrides.npy"
+            np.save(dictionary_path, self.dictionary, allow_pickle=True)
+            source_bytes = dictionary_path.read_bytes()
+
+            with self.assertRaisesRegex(ValueError, "cannot replace the base"):
+                run_transfer(
+                    base_network_path=root / "does-not-need-to-exist.gpkg",
+                    future_network_path=root / "does-not-need-to-exist.gpkg",
+                    calibration_dictionary_path=dictionary_path,
+                    output_dir=root,
+                    method="simple",
+                    write_spatial=False,
+                )
+
+            self.assertEqual(dictionary_path.read_bytes(), source_bytes)
 
     def test_run_writes_complete_dictionary_and_missing_pair_log(self) -> None:
         future = _network(

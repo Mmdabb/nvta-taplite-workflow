@@ -1014,10 +1014,17 @@ def run_transfer(
     dictionary_path = Path(calibration_dictionary_path).resolve()
     output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
+    dictionary_output = output_dir / "future_qvdf_node_pair_overrides.npy"
+    if dictionary_output.resolve() == dictionary_path:
+        raise ValueError(
+            "The expanded future dictionary output cannot replace the base "
+            "calibration dictionary"
+        )
     base_path, base = _load_network(base_network_path)
     future_path, future = _load_network(future_network_path)
     if base.crs != future.crs:
         future = future.to_crs(base.crs)
+    base_dictionary_sha256 = _sha256(dictionary_path)
     dictionary = _load_dictionary(dictionary_path)
 
     corridor_dictionary: dict[str, dict[str, dict[str, float]]] = {}
@@ -1136,7 +1143,6 @@ def run_transfer(
             "Expanded node-pair dictionary does not match the future network"
         )
 
-    dictionary_output = output_dir / "future_qvdf_node_pair_overrides.npy"
     np.save(dictionary_output, future_dictionary, allow_pickle=True)
 
     crosswalk_output = output_dir / "attribute_transfer_crosswalk.csv"
@@ -1180,6 +1186,11 @@ def run_transfer(
         key: int(value)
         for key, value in crosswalk["match_method"].value_counts().sort_index().items()
     }
+    final_base_dictionary_sha256 = _sha256(dictionary_path)
+    if final_base_dictionary_sha256 != base_dictionary_sha256:
+        raise RuntimeError(
+            "Base calibration dictionary changed during future-network transfer"
+        )
     review_count = int(crosswalk["review_flag"].sum())
     summary = {
         "status": "PASS",
@@ -1188,7 +1199,11 @@ def run_transfer(
         "base_network": str(base_path),
         "future_network": str(future_path),
         "calibration_dictionary": str(dictionary_path),
-        "calibration_dictionary_sha256": _sha256(dictionary_path),
+        "calibration_dictionary_sha256": base_dictionary_sha256,
+        "base_dictionary_modified": False,
+        "base_dictionary_policy": (
+            "read-only input; expanded CSV and NPY are written only under output_dir"
+        ),
         "base_links": int(len(base)),
         "calibrated_2025_pairs": int(len(dictionary)),
         "future_links": int(len(future)),
