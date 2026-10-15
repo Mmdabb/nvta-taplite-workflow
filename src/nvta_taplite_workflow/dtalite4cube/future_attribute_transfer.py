@@ -9,7 +9,8 @@ The module exposes two deliberately different policies:
 ``framework``
     Apply the hierarchy documented in the CUBE future-network transfer
     framework: exact directed pair, constrained replacement path, directed
-    geometry match, then link-type fallback.
+    high-confidence geometry match, accepted corridor calibration, then
+    link-type fallback.
 
 Both policies write a complete future-network QVDF dictionary plus an
 auditable crosswalk and an explicit log of every future pair that was missing
@@ -45,6 +46,28 @@ QVDF_FIELDS = tuple(
 )
 REQUIRED_NETWORK_FIELDS = ("A", "B", "ATYPE", "FTYPE")
 OPTIONAL_NETWORK_FIELDS = ("STREETNAME", "DISTANCE", "LINKID")
+CORRIDOR_FIT_TO_QVDF = {
+    "n": "n",
+    "s": "s",
+    "cp": "f_p",
+    "cd": "f_d",
+    "alpha": "alpha",
+    "beta": "beta",
+}
+CORRIDOR_CACHE_COLUMNS = (
+    "corridor",
+    "period",
+    "n",
+    "s",
+    "cp",
+    "cd",
+    "alpha",
+    "beta",
+    "n_episodes",
+    "source_catalog",
+)
+EXPANDED_DICTIONARY_NAME = "expanded_node_pair_qvdf.csv"
+EXPANDED_MANIFEST_NAME = "expanded_node_pair_qvdf_manifest.json"
 
 
 @dataclass(frozen=True)
@@ -58,10 +81,12 @@ class FrameworkConfig:
     path_min_score: float = 0.72
     geometry_search_ft: float = 250.0
     geometry_overlap_buffer_ft: float = 80.0
-    geometry_candidate_min_score: float = 0.72
-    geometry_candidate_min_margin: float = 0.08
     geometry_auto_min_score: float = 0.82
     geometry_auto_min_margin: float = 0.15
+    corridor_min_score: float = 0.72
+    corridor_min_margin: float = 0.08
+    corridor_min_direction_score: float = 0.70
+    corridor_min_link_type_score: float = 0.50
 
 
 def _sha256(path: Path) -> str:
@@ -88,6 +113,237 @@ def _load_dictionary(path: Path) -> dict[tuple[int, int], dict[str, float]]:
             )
         result[pair] = {field: float(values[field]) for field in QVDF_FIELDS}
     return result
+
+
+def _network_fingerprint(frame: gpd.GeoDataFrame) -> str:
+    """Hash the attributes and geometry that control transfer decisions."""
+
+    columns = [
+        column
+        for column in (*REQUIRED_NETWORK_FIELDS, *OPTIONAL_NETWORK_FIELDS)
+        if column in frame.columns
+    ]
+    digest = hashlib.sha256(str(frame.crs).encode("utf-8"))
+    hashes = pd.util.hash_pandas_object(frame[columns], index=False)
+    digest.update(hashes.to_numpy(dtype="uint64").tobytes())
+    for geometry in frame.geometry:
+        digest.update(geometry.wkb)
+    return digest.hexdigest().upper()
+
+
+def _load_corridor_cache(
+    output_dir: Path,
+    corridor_root: Path,
+    *,
+    rebuild: bool,
+) -> tuple[
+    dict[str, dict[str, dict[str, float]]],
+    dict[tuple[int, int], str],
+    dict[tuple[int, int], dict[str, object]],
+    dict[str, object],
+]:
+    """Create or reuse the run-local accepted corridor calibration lookup."""
+
+    fit_cache = output_dir / "corridor_qvdf_dictionary.csv"
+    pair_cache = output_dir / "corridor_node_pair_lookup.csv"
+    cache_files_exist = fit_cache.is_file() and pair_cache.is_file()
+    if (fit_cache.exists() != pair_cache.exists()) and not rebuild:
+        raise ValueError(
+            "The corridor cache is incomplete; use a new output directory or "
+            "request a corridor-cache rebuild"
+        )
+
+    if cache_files_exist and not rebuild:
+        fits = pd.read_csv(fit_cache, low_memory=False)
+        pair_rows = pd.read_csv(pair_cache, low_memory=False)
+        action = "reused"
+    else:
+        root = Path(corridor_root).resolve()
+        if not root.is_dir():
+            raise FileNotFoundError(root)
+        fit_frames: list[pd.DataFrame] = []
+        pair_frames: list[pd.DataFrame] = []
+        for corridor_dir in sorted(path for path in root.iterdir() if path.is_dir()):
+            catalog_path = (
+                corridor_dir
+                / "06-qvdf-calibration"
+                / "primary_qvdf_fit_catalog.csv"
+            )
+            reference_path = corridor_dir / "01-input-and-qc" / "link_reference.csv"
+            if catalog_path.is_file():
+                catalog = pd.read_csv(catalog_path, low_memory=False)
+                required = {
+                    "corridor",
+                    "sensor_uid",
+                    "calibration_period",
+                    "status",
+                    "n_episodes",
+                    *CORRIDOR_FIT_TO_QVDF.values(),
+                }
+                missing = required.difference(catalog.columns)
+                if missing:
+                    raise ValueError(
+                        f"{catalog_path} is missing: {', '.join(sorted(missing))}"
+                    )
+                accepted = catalog[
+                    catalog["sensor_uid"].astype(str).str.strip().str.casefold().eq("all")
+                    & catalog["status"].astype(str).str.strip().str.casefold().eq("ok")
+                    & catalog["calibration_period"]
+                    .astype(str)
+                    .str.strip()
+                    .str.upper()
+                    .isin({period.upper() for period in PERIOD_SEQUENCE})
+                ].copy()
+                if not accepted.empty:
+                    mapped = pd.DataFrame(
+                        {
+                            "corridor": accepted["corridor"].astype(str).str.strip(),
+                            "period": accepted["calibration_period"]
+                            .astype(str)
+                            .str.strip()
+                            .str.lower(),
+                            "n_episodes": pd.to_numeric(
+                                accepted["n_episodes"], errors="coerce"
+                            ),
+                            "source_catalog": str(catalog_path.resolve()),
+                        }
+                    )
+                    for qvdf_name, fit_name in CORRIDOR_FIT_TO_QVDF.items():
+                        mapped[qvdf_name] = pd.to_numeric(
+                            accepted[fit_name], errors="coerce"
+                        )
+                    fit_frames.append(mapped)
+            if reference_path.is_file():
+                reference = pd.read_csv(reference_path, low_memory=False)
+                required = {
+                    "corridor",
+                    "direction",
+                    "network_from_node_id",
+                    "network_to_node_id",
+                    "network_selected_for_node_pair_lookup",
+                }
+                missing = required.difference(reference.columns)
+                if missing:
+                    raise ValueError(
+                        f"{reference_path} is missing: {', '.join(sorted(missing))}"
+                    )
+                selected = reference[
+                    reference["network_selected_for_node_pair_lookup"]
+                    .astype(str)
+                    .str.strip()
+                    .str.casefold()
+                    .isin({"true", "1", "yes", "y"})
+                ].copy()
+                selected["from_node_id"] = pd.to_numeric(
+                    selected["network_from_node_id"], errors="coerce"
+                )
+                selected["to_node_id"] = pd.to_numeric(
+                    selected["network_to_node_id"], errors="coerce"
+                )
+                selected = selected.dropna(subset=["from_node_id", "to_node_id"])
+                for column in ("tmc_code", "road_order"):
+                    if column not in selected:
+                        selected[column] = ""
+                pair_frames.append(
+                    selected[
+                        [
+                            "from_node_id",
+                            "to_node_id",
+                            "corridor",
+                            "direction",
+                            "tmc_code",
+                            "road_order",
+                        ]
+                    ]
+                )
+
+        if not fit_frames:
+            raise ValueError(f"No accepted corridor calibration rows found under {root}")
+        fits = pd.concat(fit_frames, ignore_index=True)
+        parameter_columns = list(CORRIDOR_FIT_TO_QVDF)
+        if (
+            fits[parameter_columns].isna().any().any()
+            or not np.isfinite(fits[parameter_columns].to_numpy(dtype=float)).all()
+        ):
+            raise ValueError("Accepted corridor calibration contains non-finite values")
+        if fits.duplicated(["corridor", "period"]).any():
+            duplicates = fits.loc[
+                fits.duplicated(["corridor", "period"], keep=False),
+                ["corridor", "period"],
+            ]
+            raise ValueError(
+                "Accepted corridor calibration contains duplicate corridor-period rows: "
+                f"{duplicates.drop_duplicates().to_dict('records')[:10]}"
+            )
+        accepted_corridors = set(fits["corridor"])
+        pair_rows = pd.concat(pair_frames, ignore_index=True)
+        pair_rows["corridor"] = pair_rows["corridor"].astype(str).str.strip()
+        pair_rows = pair_rows[pair_rows["corridor"].isin(accepted_corridors)].copy()
+        pair_rows[["from_node_id", "to_node_id"]] = pair_rows[
+            ["from_node_id", "to_node_id"]
+        ].astype("int64")
+        conflicts = (
+            pair_rows.groupby(["from_node_id", "to_node_id"])["corridor"]
+            .nunique()
+            .gt(1)
+        )
+        if conflicts.any():
+            raise ValueError("A corridor node pair maps to more than one corridor")
+        fits = fits.loc[:, CORRIDOR_CACHE_COLUMNS].sort_values(
+            ["corridor", "period"]
+        )
+        pair_rows = pair_rows.drop_duplicates(
+            ["from_node_id", "to_node_id"]
+        ).sort_values(["from_node_id", "to_node_id"])
+        fits.to_csv(fit_cache, index=False)
+        pair_rows.to_csv(pair_cache, index=False)
+        action = "created" if not cache_files_exist else "rebuilt"
+
+    required_fit_columns = set(CORRIDOR_CACHE_COLUMNS)
+    missing = required_fit_columns.difference(fits.columns)
+    if missing:
+        raise ValueError(f"{fit_cache} is missing: {', '.join(sorted(missing))}")
+    required_pair_columns = {
+        "from_node_id",
+        "to_node_id",
+        "corridor",
+        "direction",
+        "tmc_code",
+        "road_order",
+    }
+    missing = required_pair_columns.difference(pair_rows.columns)
+    if missing:
+        raise ValueError(f"{pair_cache} is missing: {', '.join(sorted(missing))}")
+
+    corridor_dictionary: dict[str, dict[str, dict[str, float]]] = {}
+    for row in fits.itertuples(index=False):
+        corridor_dictionary.setdefault(str(row.corridor), {})[str(row.period)] = {
+            parameter: float(getattr(row, parameter))
+            for parameter in CORRIDOR_FIT_TO_QVDF
+        }
+    pair_lookup = {
+        (int(row.from_node_id), int(row.to_node_id)): str(row.corridor)
+        for row in pair_rows.itertuples(index=False)
+    }
+    reference_lookup = {
+        (int(row.from_node_id), int(row.to_node_id)): {
+            "direction": str(row.direction),
+            "tmc_code": str(row.tmc_code),
+            "road_order": row.road_order,
+        }
+        for row in pair_rows.itertuples(index=False)
+    }
+    metadata = {
+        "action": action,
+        "fit_cache": str(fit_cache),
+        "pair_cache": str(pair_cache),
+        "accepted_corridor_periods": int(len(fits)),
+        "accepted_corridors": int(len(corridor_dictionary)),
+        "mapped_node_pairs": int(len(pair_lookup)),
+        "fit_cache_sha256": _sha256(fit_cache),
+        "pair_cache_sha256": _sha256(pair_cache),
+    }
+    return corridor_dictionary, pair_lookup, reference_lookup, metadata
 
 
 def _resolve_network_path(path: Path) -> Path:
@@ -198,7 +454,13 @@ def _path_score(
         np.mean([_corridor_score(base_row, row) for _, row in future_rows.iterrows()])
     )
     length = _length_score(base_length, future_length)
-    return 0.40 * overlap_score + 0.20 * direction + 0.15 * facility + 0.15 * corridor + 0.10 * length
+    return (
+        0.40 * overlap_score
+        + 0.20 * direction
+        + 0.15 * facility
+        + 0.15 * corridor
+        + 0.10 * length
+    )
 
 
 def _candidate_path(
@@ -301,6 +563,8 @@ def build_transfer_crosswalk(
     *,
     method: str,
     config: FrameworkConfig | None = None,
+    corridor_pair_lookup: dict[tuple[int, int], str] | None = None,
+    corridor_reference_lookup: dict[tuple[int, int], dict[str, object]] | None = None,
 ) -> pd.DataFrame:
     """Build one provenance row for every future directed link."""
 
@@ -310,15 +574,18 @@ def build_transfer_crosswalk(
     config = config or FrameworkConfig()
     calibrated = {(int(a), int(b)) for a, b in calibrated_pairs}
 
-    base = base_network.copy()
+    base_all = base_network.copy()
     future = future_network.copy()
-    base["_pair"] = list(zip(base["A"].astype(int), base["B"].astype(int)))
+    base_all["_pair"] = list(
+        zip(base_all["A"].astype(int), base_all["B"].astype(int))
+    )
     future["_pair"] = list(zip(future["A"].astype(int), future["B"].astype(int)))
-    all_base_pairs = set(base["_pair"])
-    base = base[base["_pair"].isin(calibrated)].copy()
+    all_base_pairs = set(base_all["_pair"])
+    base = base_all[base_all["_pair"].isin(calibrated)].copy()
     base_by_pair = {pair: index for index, pair in base["_pair"].items()}
 
     rows: dict[int, dict[str, object]] = {}
+    corridor_rejections: dict[int, dict[str, object]] = {}
     for index, row in future.iterrows():
         pair = row["_pair"]
         if pair in calibrated:
@@ -408,11 +675,6 @@ def build_transfer_crosswalk(
             best_score, best_index = scored[0]
             runner_up = scored[1][0] if len(scored) > 1 else 0.0
             margin = best_score - runner_up
-            if (
-                best_score < config.geometry_candidate_min_score
-                or margin < config.geometry_candidate_min_margin
-            ):
-                continue
             base_pair = base.at[best_index, "_pair"]
             future_pair = future_row["_pair"]
             if (
@@ -435,48 +697,301 @@ def build_transfer_crosswalk(
                     "fallback_vdf_code": "",
                     "notes": "accepted directed geometry match",
                 }
-            else:
+
+        corridor_pair_lookup = corridor_pair_lookup or {}
+        corridor_reference_lookup = corridor_reference_lookup or {}
+        if corridor_pair_lookup:
+            corridor_base = base_all[
+                base_all["_pair"].isin(corridor_pair_lookup)
+            ].copy()
+            corridor_base["_corridor"] = corridor_base["_pair"].map(
+                corridor_pair_lookup
+            )
+            corridor_base["_corridor_direction"] = corridor_base["_pair"].map(
+                lambda pair: corridor_reference_lookup.get(pair, {}).get(
+                    "direction", ""
+                )
+            )
+            corridor_link_types = {
+                str(corridor): sorted(
+                    {
+                        (int(row["ATYPE"]), int(row["FTYPE"]))
+                        for _, row in group.iterrows()
+                    }
+                )
+                for corridor, group in corridor_base.groupby("_corridor")
+            }
+            base_all_by_pair = {
+                pair: index for index, pair in base_all["_pair"].items()
+            }
+            corridor_index = corridor_base.sindex
+            remaining = [index for index in future.index if index not in rows]
+            for index in remaining:
+                future_row = future.loc[index]
+                future_pair = future_row["_pair"]
+                direct_corridor = corridor_pair_lookup.get(future_pair)
+                candidate_pair: tuple[int, int] | None = None
+                if direct_corridor is not None:
+                    corridor = direct_corridor
+                    candidate_index = base_all_by_pair[future_pair]
+                    candidate_row = base_all.loc[candidate_index]
+                    score = 1.0
+                    margin = 1.0
+                    candidate_pair = future_pair
+                    note = "exact 2025 corridor membership; accepted corridor-period fit"
+                else:
+                    search_geometry = future_row.geometry.buffer(
+                        config.geometry_search_ft
+                    )
+                    candidate_positions = list(
+                        corridor_index.query(search_geometry, predicate="intersects")
+                    )
+                    by_corridor: dict[
+                        str, tuple[float, tuple[int, int], int]
+                    ] = {}
+                    for position in candidate_positions:
+                        candidate_index = corridor_base.index[int(position)]
+                        candidate_row = corridor_base.loc[candidate_index]
+                        candidate_score = _geometry_score(
+                            candidate_row, future_row, config
+                        )
+                        candidate_corridor = str(candidate_row["_corridor"])
+                        previous = by_corridor.get(candidate_corridor)
+                        if previous is None or candidate_score > previous[0]:
+                            by_corridor[candidate_corridor] = (
+                                candidate_score,
+                                candidate_row["_pair"],
+                                candidate_index,
+                            )
+                    ranked = sorted(
+                        (
+                            (candidate_score, candidate_corridor, pair, row_index)
+                            for candidate_corridor, (
+                                candidate_score,
+                                pair,
+                                row_index,
+                            ) in by_corridor.items()
+                        ),
+                        reverse=True,
+                    )
+                    if not ranked:
+                        continue
+                    score, corridor, candidate_pair, candidate_index = ranked[0]
+                    candidate_row = corridor_base.loc[candidate_index]
+                    runner_up = ranked[1][0] if len(ranked) > 1 else 0.0
+                    margin = score - runner_up
+                    note = (
+                        "corridor inferred from directed geometry; accepted "
+                        "corridor-period fit"
+                    )
+                direction_score = _direction_score(
+                    candidate_row.geometry, future_row.geometry
+                )
+                observed_link_types = corridor_link_types[corridor]
+                type_scores = [
+                    (
+                        (
+                            float(int(future_row["ATYPE"]) == atype)
+                            + float(int(future_row["FTYPE"]) == ftype)
+                        )
+                        / 2.0,
+                        atype,
+                        ftype,
+                    )
+                    for atype, ftype in observed_link_types
+                ]
+                link_type_score, matched_atype, matched_ftype = max(type_scores)
+                name_score = _corridor_score(candidate_row, future_row)
+                rejection_reasons = []
+                if score < config.corridor_min_score:
+                    rejection_reasons.append("score_below_minimum")
+                if margin < config.corridor_min_margin:
+                    rejection_reasons.append("corridor_margin_below_minimum")
+                if direction_score < config.corridor_min_direction_score:
+                    rejection_reasons.append("direction_misaligned")
+                if link_type_score < config.corridor_min_link_type_score:
+                    rejection_reasons.append("link_type_incompatible")
+                reference = corridor_reference_lookup.get(candidate_pair, {})
+                if rejection_reasons:
+                    corridor_rejections[index] = {
+                        "corridor_candidate_id": corridor,
+                        "corridor_direction": reference.get("direction", ""),
+                        "corridor_tmc_code": reference.get("tmc_code", ""),
+                        "corridor_direction_score": direction_score,
+                        "corridor_link_type_score": link_type_score,
+                        "corridor_name_score": name_score,
+                        "corridor_reference_atype": int(candidate_row["ATYPE"]),
+                        "corridor_reference_ftype": int(candidate_row["FTYPE"]),
+                        "corridor_observed_link_types": ";".join(
+                            f"{atype}:{ftype}"
+                            for atype, ftype in observed_link_types
+                        ),
+                        "corridor_matched_atype": matched_atype,
+                        "corridor_matched_ftype": matched_ftype,
+                        "corridor_rejection_reason": ";".join(rejection_reasons),
+                        "candidate_base_a": candidate_pair[0],
+                        "candidate_base_b": candidate_pair[1],
+                        "match_score": score,
+                        "score_margin": margin,
+                    }
+                    continue
                 rows[index] = {
                     "future_a": future_pair[0],
                     "future_b": future_pair[1],
                     "base_a": np.nan,
                     "base_b": np.nan,
-                    "match_method": "GEOMETRY_CANDIDATE",
+                    "match_method": "CORRIDOR",
                     "confidence_class": "E",
-                    "match_score": best_score,
+                    "match_score": score,
                     "score_margin": margin,
-                    "review_flag": 1,
-                    "attribute_source": "LINK_TYPE_FALLBACK",
-                    "candidate_base_a": base_pair[0],
-                    "candidate_base_b": base_pair[1],
-                    "fallback_vdf_code": str(
-                        100 * int(future_row["ATYPE"]) + int(future_row["FTYPE"])
+                    "review_flag": 0,
+                    "attribute_source": "CORRIDOR_CALIBRATION",
+                    "candidate_base_a": candidate_pair[0] if candidate_pair else np.nan,
+                    "candidate_base_b": candidate_pair[1] if candidate_pair else np.nan,
+                    "corridor_id": corridor,
+                    "corridor_candidate_id": corridor,
+                    "corridor_direction": reference.get("direction", ""),
+                    "corridor_tmc_code": reference.get("tmc_code", ""),
+                    "corridor_direction_score": direction_score,
+                    "corridor_link_type_score": link_type_score,
+                    "corridor_name_score": name_score,
+                    "corridor_reference_atype": int(candidate_row["ATYPE"]),
+                    "corridor_reference_ftype": int(candidate_row["FTYPE"]),
+                    "corridor_observed_link_types": ";".join(
+                        f"{atype}:{ftype}" for atype, ftype in observed_link_types
                     ),
-                    "notes": "geometry candidate retained for review; fallback applied",
+                    "corridor_matched_atype": matched_atype,
+                    "corridor_matched_ftype": matched_ftype,
+                    "corridor_rejection_reason": "",
+                    "fallback_vdf_code": "",
+                    "notes": note,
                 }
 
     for index, row in future.iterrows():
         if index in rows:
             continue
         pair = row["_pair"]
-        rows[index] = {
+        rejection = corridor_rejections.get(index, {})
+        fallback_row = {
             "future_a": pair[0],
             "future_b": pair[1],
             "base_a": np.nan,
             "base_b": np.nan,
             "match_method": "LINK_TYPE_FALLBACK",
-            "confidence_class": "E",
+            "confidence_class": "F",
             "match_score": np.nan,
             "score_margin": np.nan,
             "review_flag": 1,
             "attribute_source": "LINK_TYPE_FALLBACK",
             "candidate_base_a": np.nan,
             "candidate_base_b": np.nan,
+            "corridor_id": "",
+            "corridor_candidate_id": "",
+            "corridor_direction": "",
+            "corridor_tmc_code": "",
+            "corridor_direction_score": np.nan,
+            "corridor_link_type_score": np.nan,
+            "corridor_name_score": np.nan,
+            "corridor_reference_atype": np.nan,
+            "corridor_reference_ftype": np.nan,
+            "corridor_observed_link_types": "",
+            "corridor_matched_atype": np.nan,
+            "corridor_matched_ftype": np.nan,
+            "corridor_rejection_reason": "",
             "fallback_vdf_code": str(100 * int(row["ATYPE"]) + int(row["FTYPE"])),
             "notes": "no accepted 2025 lineage; QVDF-only link-type fallback",
         }
+        fallback_row.update(rejection)
+        if rejection:
+            fallback_row["notes"] = (
+                "corridor candidate rejected by explicit evidence gates; "
+                "QVDF-only link-type fallback"
+            )
+        rows[index] = fallback_row
 
-    return pd.DataFrame.from_dict(rows, orient="index").loc[future.index]
+    result = pd.DataFrame.from_dict(rows, orient="index").loc[future.index]
+    for column in (
+        "corridor_id",
+        "corridor_candidate_id",
+        "corridor_direction",
+        "corridor_tmc_code",
+        "corridor_observed_link_types",
+        "corridor_rejection_reason",
+    ):
+        if column not in result:
+            result[column] = ""
+        result[column] = result[column].fillna("")
+    return result
+
+
+def _expanded_cache_signature(
+    *,
+    method: str,
+    base: gpd.GeoDataFrame,
+    future: gpd.GeoDataFrame,
+    dictionary_path: Path,
+    corridor_metadata: dict[str, object] | None,
+    config: FrameworkConfig,
+) -> dict[str, object]:
+    return {
+        "schema_version": 3,
+        "method": method,
+        "base_network_fingerprint": _network_fingerprint(base),
+        "future_network_fingerprint": _network_fingerprint(future),
+        "calibration_dictionary_sha256": _sha256(dictionary_path),
+        "corridor_fit_cache_sha256": (
+            corridor_metadata.get("fit_cache_sha256") if corridor_metadata else None
+        ),
+        "corridor_pair_cache_sha256": (
+            corridor_metadata.get("pair_cache_sha256") if corridor_metadata else None
+        ),
+        "configuration": config.__dict__,
+    }
+
+
+def _load_expanded_dictionary(
+    path: Path,
+) -> tuple[
+    dict[tuple[int, int], dict[str, float]],
+    pd.DataFrame,
+]:
+    frame = pd.read_csv(path, low_memory=False)
+    required = {"future_a", "future_b", "match_method", *QVDF_FIELDS}
+    missing = required.difference(frame.columns)
+    if missing:
+        raise ValueError(f"{path} is missing: {', '.join(sorted(missing))}")
+    if frame.duplicated(["future_a", "future_b"]).any():
+        raise ValueError(f"{path} contains duplicate future node pairs")
+    values = frame.loc[:, QVDF_FIELDS].apply(pd.to_numeric, errors="coerce")
+    if values.isna().any().any() or not np.isfinite(values.to_numpy()).all():
+        raise ValueError(f"{path} contains invalid QVDF values")
+    dictionary = {
+        (int(row.future_a), int(row.future_b)): {
+            field: float(getattr(row, field)) for field in QVDF_FIELDS
+        }
+        for row in frame.itertuples(index=False)
+    }
+    return dictionary, frame.drop(columns=list(QVDF_FIELDS))
+
+
+def _write_expanded_dictionary(
+    path: Path,
+    crosswalk: pd.DataFrame,
+    dictionary: dict[tuple[int, int], dict[str, float]],
+) -> None:
+    values = pd.DataFrame(
+        [
+            {"future_a": pair[0], "future_b": pair[1], **parameters}
+            for pair, parameters in dictionary.items()
+        ]
+    )
+    expanded = crosswalk.merge(
+        values,
+        on=["future_a", "future_b"],
+        how="left",
+        validate="one_to_one",
+    )
+    expanded.to_csv(path, index=False)
 
 
 def run_transfer(
@@ -488,6 +1003,9 @@ def run_transfer(
     method: str,
     config: FrameworkConfig | None = None,
     write_spatial: bool = True,
+    corridor_root: Path | None = None,
+    rebuild_corridor_dictionary: bool = False,
+    rebuild_expanded_dictionary: bool = False,
 ) -> dict[str, object]:
     """Run a transfer policy and write the future dictionary and QA artifacts."""
 
@@ -501,36 +1019,128 @@ def run_transfer(
     if base.crs != future.crs:
         future = future.to_crs(base.crs)
     dictionary = _load_dictionary(dictionary_path)
-    crosswalk = build_transfer_crosswalk(
-        base,
-        future,
-        dictionary,
+
+    corridor_dictionary: dict[str, dict[str, dict[str, float]]] = {}
+    corridor_pair_lookup: dict[tuple[int, int], str] = {}
+    corridor_reference_lookup: dict[tuple[int, int], dict[str, object]] = {}
+    corridor_metadata: dict[str, object] | None = None
+    if corridor_root is not None:
+        (
+            corridor_dictionary,
+            corridor_pair_lookup,
+            corridor_reference_lookup,
+            corridor_metadata,
+        ) = (
+            _load_corridor_cache(
+                output_dir,
+                Path(corridor_root),
+                rebuild=rebuild_corridor_dictionary,
+            )
+        )
+
+    expanded_output = output_dir / EXPANDED_DICTIONARY_NAME
+    expanded_manifest_output = output_dir / EXPANDED_MANIFEST_NAME
+    signature = _expanded_cache_signature(
         method=method,
+        base=base,
+        future=future,
+        dictionary_path=dictionary_path,
+        corridor_metadata=corridor_metadata,
         config=config,
     )
-
-    link_type_lookup = get_vdf_dict("qvdf")
-    future_dictionary: dict[tuple[int, int], dict[str, float]] = {}
-    fallback_sources: dict[int, str] = {}
-    for index, transfer in crosswalk.iterrows():
-        future_pair = (int(transfer["future_a"]), int(transfer["future_b"]))
-        if transfer["attribute_source"] == "LINK_TYPE_FALLBACK":
-            values, source_code = _fallback_values(future.loc[index], link_type_lookup)
-            fallback_sources[index] = source_code
+    expanded_action = "created"
+    if expanded_output.is_file() or expanded_manifest_output.is_file():
+        if not expanded_output.is_file() or not expanded_manifest_output.is_file():
+            raise ValueError(
+                "The expanded node-pair cache is incomplete; use a new output "
+                "directory or request an expanded-dictionary rebuild"
+            )
+        existing_manifest = json.loads(
+            expanded_manifest_output.read_text(encoding="utf-8")
+        )
+        existing_signature = existing_manifest.get("input_signature")
+        if existing_signature != signature and not rebuild_expanded_dictionary:
+            raise ValueError(
+                "The existing expanded node-pair dictionary was built from different "
+                "inputs. Use a new output directory or --rebuild-expanded-dictionary."
+            )
+        if existing_signature == signature and not rebuild_expanded_dictionary:
+            future_dictionary, crosswalk = _load_expanded_dictionary(expanded_output)
+            expanded_action = "reused"
         else:
-            base_pair = (int(transfer["base_a"]), int(transfer["base_b"]))
-            values = dictionary[base_pair]
-        future_dictionary[future_pair] = dict(values)
-    if len(future_dictionary) != len(future):
-        raise RuntimeError("Future QVDF dictionary does not cover every future node pair")
+            expanded_action = "rebuilt"
+
+    if expanded_action != "reused":
+        crosswalk = build_transfer_crosswalk(
+            base,
+            future,
+            dictionary,
+            method=method,
+            config=config,
+            corridor_pair_lookup=corridor_pair_lookup,
+            corridor_reference_lookup=corridor_reference_lookup,
+        )
+
+        link_type_lookup = get_vdf_dict("qvdf")
+        future_dictionary = {}
+        for index, transfer in crosswalk.iterrows():
+            future_pair = (int(transfer["future_a"]), int(transfer["future_b"]))
+            source = transfer["attribute_source"]
+            if source == "BASE_CALIBRATION":
+                base_pair = (int(transfer["base_a"]), int(transfer["base_b"]))
+                values = dict(dictionary[base_pair])
+                source_by_period = {
+                    period: "BASE_CALIBRATION" for period in PERIOD_SEQUENCE
+                }
+            else:
+                values, source_code = _fallback_values(
+                    future.loc[index], link_type_lookup
+                )
+                crosswalk.at[index, "fallback_vdf_code"] = source_code
+                source_by_period = {
+                    period: "LINK_TYPE_FALLBACK" for period in PERIOD_SEQUENCE
+                }
+                if source == "CORRIDOR_CALIBRATION":
+                    corridor = str(transfer["corridor_id"])
+                    for period, parameters in corridor_dictionary[corridor].items():
+                        sequence = PERIOD_SEQUENCE[period]
+                        for parameter, value in parameters.items():
+                            values[f"QVDF_{parameter}{sequence}"] = float(value)
+                        source_by_period[period] = "CORRIDOR_CALIBRATION"
+            for period, period_source in source_by_period.items():
+                crosswalk.at[index, f"{period}_parameter_source"] = period_source
+            future_dictionary[future_pair] = values
+
+        if len(future_dictionary) != len(future):
+            raise RuntimeError(
+                "Future QVDF dictionary does not cover every future node pair"
+            )
+        _write_expanded_dictionary(expanded_output, crosswalk, future_dictionary)
+        expanded_manifest_output.write_text(
+            json.dumps(
+                {
+                    "created_utc": datetime.now(timezone.utc).isoformat(),
+                    "input_signature": signature,
+                    "rows": len(future_dictionary),
+                    "expanded_csv_sha256": _sha256(expanded_output),
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    expected_pairs = set(zip(future["A"].astype(int), future["B"].astype(int)))
+    if set(future_dictionary) != expected_pairs:
+        raise ValueError(
+            "Expanded node-pair dictionary does not match the future network"
+        )
 
     dictionary_output = output_dir / "future_qvdf_node_pair_overrides.npy"
     np.save(dictionary_output, future_dictionary, allow_pickle=True)
 
     crosswalk_output = output_dir / "attribute_transfer_crosswalk.csv"
     crosswalk_to_write = crosswalk.copy()
-    for index, source in fallback_sources.items():
-        crosswalk_to_write.at[index, "fallback_vdf_code"] = source
     crosswalk_to_write.to_csv(crosswalk_output, index=False)
 
     exact_pairs = set(dictionary).intersection(zip(future["A"], future["B"]))
@@ -587,11 +1197,24 @@ def run_transfer(
         "match_method_counts": counts,
         "review_links": review_count,
         "review_share_pct": round(100.0 * review_count / len(future), 4),
+        "expanded_dictionary_action": expanded_action,
+        "corridor_dictionary": corridor_metadata,
         "qvdf_fields_transferred": list(QVDF_FIELDS),
-        "non_qvdf_unmatched_policy": "leave empty; this transfer dictionary contains only QVDF parameters",
+        "corridor_parameter_policy": (
+            "Accepted sensor_uid=all/status=ok corridor fits replace n, s, cp, "
+            "cd, alpha, and beta for available AM/MD/PM periods; PLF/QDF and "
+            "unavailable periods retain the link-type fallback"
+            if corridor_metadata
+            else "No corridor source supplied"
+        ),
+        "non_qvdf_unmatched_policy": (
+            "leave empty; this transfer dictionary contains only QVDF parameters"
+        ),
         "configuration": config.__dict__,
         "outputs": {
             "future_dictionary": str(dictionary_output),
+            "expanded_dictionary_csv": str(expanded_output),
+            "expanded_dictionary_manifest": str(expanded_manifest_output),
             "crosswalk_csv": str(crosswalk_output),
             "missing_pair_log": str(missing_output),
             "crosswalk_gpkg": str(spatial_output) if spatial_output else None,

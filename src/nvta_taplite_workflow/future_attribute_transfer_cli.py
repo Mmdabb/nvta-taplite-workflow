@@ -27,13 +27,36 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("simple", "framework"),
         help=(
             "simple uses exact pairs plus link-type fallback; framework adds "
-            "replacement-path and directed-geometry recovery."
+            "replacement-path, high-confidence directed-geometry, and optional "
+            "accepted corridor-calibration recovery."
         ),
     )
     parser.add_argument(
         "--calibration-dictionary",
         type=Path,
         default=DEFAULT_QVDF_OVERRIDE_DICTIONARY,
+    )
+    parser.add_argument(
+        "--corridor-root",
+        type=Path,
+        help=(
+            "Root containing each corridor's 06-qvdf-calibration/"
+            "primary_qvdf_fit_catalog.csv and 01-input-and-qc/link_reference.csv. "
+            "Used only by the framework method."
+        ),
+    )
+    parser.add_argument(
+        "--rebuild-corridor-dictionary",
+        action="store_true",
+        help="Rebuild the run-local corridor lookup CSV files.",
+    )
+    parser.add_argument(
+        "--rebuild-expanded-dictionary",
+        action="store_true",
+        help=(
+            "Replace an existing run-local expanded node-pair CSV after an "
+            "intentional input or configuration change."
+        ),
     )
     parser.add_argument(
         "--no-spatial-output",
@@ -52,6 +75,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         output_dir=args.output_dir,
         method=args.method,
         write_spatial=not args.no_spatial_output,
+        corridor_root=args.corridor_root,
+        rebuild_corridor_dictionary=args.rebuild_corridor_dictionary,
+        rebuild_expanded_dictionary=args.rebuild_expanded_dictionary,
     )
     print(json.dumps(summary, indent=2))
     return 0
