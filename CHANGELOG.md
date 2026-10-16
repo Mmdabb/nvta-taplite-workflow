@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0rc5 - 2026-10-16
+
+- Bind automatic transfer sets to the resolved shapefile folder as well as the
+  network fingerprint, so moving an unchanged network is a first-time run in
+  its new location.
+- Reject automatic dictionary paths that resolve outside the selected
+  shapefile folder's local `NVTA_Attribute_Transfer` directory.
+
 ## 0.1.0rc4 - 2026-10-16
 
 - Automatically prepare and apply fingerprint-matched future-network transfer
