@@ -5,6 +5,11 @@ once, then use either the Python or batch launchers with the documented command
 arguments. Future workflow and resource releases are installed by
 `update_environment.bat` or by rerunning setup.
 
+When network conversion is enabled, future-network calibration transfer is
+automatic. The workflow creates or reuses a fingerprint-matched
+`NVTA_Attribute_Transfer` folder beside the scenario shapefile; clients do not
+select or manage dictionary files.
+
 The client folder may be placed on a local, mapped, or UNC network path. Logs
 from assignment runs are written under the selected output's `logs` folder,
 with the caller's `logs` folder used only as a fallback.

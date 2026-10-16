@@ -69,6 +69,7 @@ false`.
 
 ```powershell
 python -m nvta_taplite_workflow assignment --scenario-dir "C:\path\to\scenario"
+# The standalone transfer commands below remain available for maintainer diagnostics.
 python -m nvta_taplite_workflow transfer --base-network "C:\path\to\2025.shp" `
   --future-network "C:\path\to\2050.shp" --method simple `
   --output-dir "C:\path\to\transfer-results"
@@ -83,8 +84,22 @@ python -m nvta_taplite_workflow version
 
 ### Future-network QVDF transfer
 
-The `transfer` command creates an assignment-ready QVDF dictionary for a
-future network and preserves the evidence for every transferred value.
+Future-network transfer is automatic whenever assignment runs with network
+conversion enabled (the default). The client only runs the normal assignment
+command. The workflow selects the network shapefile, fingerprints its full
+contents, and creates or reuses a matching transfer set under:
+
+```text
+<folder-containing-the-shapefile>\NVTA_Attribute_Transfer\sets\network-<fingerprint>
+```
+
+If any network content changes, a new set is created and retained beside the
+older set. Assignment is then bound to the two dictionaries in the matching
+set, so manually supplied stale dictionary paths cannot be used during network
+conversion. `active_transfer.json` identifies the set used by the latest run.
+
+The standalone `transfer` command remains available for maintainer diagnostics
+and creates the same assignment-ready dictionaries and audit evidence.
 
 - `--method simple` copies exact directed 2025 node pairs. Missing pairs are
   written to `missing_2025_node_pairs.csv` and receive QVDF values from their
@@ -105,14 +120,8 @@ when all input fingerprints still match. Corridor fits supply `n`, `s`, `cp`,
 the link-type fallback. The separate `future_speed_t_overrides.npy` carries
 period speed anchors and complete T0/T2/T3 triplets only through exact,
 replacement-path, or accepted high-confidence geometry lineage. Corridor and
-link-type fallback rows remain blank. Pass both generated dictionaries to
-assignment:
-
-```powershell
-python -m nvta_taplite_workflow assignment --scenario-dir "C:\path\to\scenario" `
-  --qvdf-override-dictionary "C:\path\to\future_qvdf_node_pair_overrides.npy" `
-  --speed-t-override-dictionary "C:\path\to\future_speed_t_overrides.npy"
-```
+link-type fallback rows remain blank. Automatic assignment selects both files;
+the client does not need to pass their paths.
 
 The packaged base-year QVDF and speed/T resources are never modified or
 expanded in place. They are treated as read-only, checked by hash before and
@@ -142,11 +151,11 @@ Do:
 - Keep geometries spatially accurate and use a valid CRS. The 2025 NVTA base
   network is in US survey feet; spatial matching thresholds are evaluated in
   that base CRS after the future network is reprojected.
-- Use a separate output directory for each scenario/year and inspect
-  `attribute_transfer_crosswalk.csv`, `missing_2025_node_pairs.csv`, and every
-  row with `review_flag=1` before assignment.
-- Pass that scenario's generated `future_qvdf_node_pair_overrides.npy` and
-  `future_speed_t_overrides.npy` to assignment with their respective options.
+- Keep each scenario/year in its own network folder and inspect the active
+  set's `attribute_transfer_crosswalk.csv`, `missing_2025_node_pairs.csv`, and
+  every row with `review_flag=1` before relying on a new network.
+- Keep the scenario folder writable so the workflow can maintain its local
+  `NVTA_Attribute_Transfer` folder.
 
 Don't:
 

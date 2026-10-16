@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0rc4 - 2026-10-16
+
+- Automatically prepare and apply fingerprint-matched future-network transfer
+  dictionaries whenever network conversion runs.
+- Keep immutable dictionary sets beside the source shapefile under
+  `NVTA_Attribute_Transfer`, retaining earlier sets for debugging.
+- Create a new set after any source-network edit and prevent assignment from
+  accidentally consuming stale manually selected dictionaries.
+- Bundle the compact 2025 geometry and accepted corridor references required
+  for client-side transfers without external calibration inputs.
+
 ## 0.1.0rc3 - 2026-10-16
 
 - Transfer base-year AM/MD/PM QVDF parameters to arbitrary future-year

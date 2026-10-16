@@ -476,6 +476,45 @@ class AssignmentConfig:
         return 1
 
 
+def prepare_automatic_future_transfer(config: AssignmentConfig) -> dict | None:
+    """Bind network conversion to dictionaries validated for its source network."""
+
+    if not config.network_conversion:
+        return None
+    prepared = getattr(config, "_automatic_transfer_result", None)
+    if prepared is not None:
+        return prepared
+
+    from .automatic_future_transfer import ensure_automatic_future_transfer
+
+    previous_qvdf = config.qvdf_override_dictionary
+    previous_speed_t = config.speed_t_override_dictionary
+    result = ensure_automatic_future_transfer(
+        config.network_path,
+        DEFAULT_QVDF_OVERRIDE_DICTIONARY,
+    )
+    qvdf_dictionary = Path(str(result["qvdf_dictionary"])).resolve()
+    speed_t_dictionary = Path(str(result["speed_t_dictionary"])).resolve()
+
+    if previous_qvdf is not None and previous_qvdf.resolve() != qvdf_dictionary:
+        logger.warning(
+            "Ignoring manually selected QVDF dictionary during network conversion; "
+            "the fingerprint-matched automatic dictionary will be used: %s",
+            qvdf_dictionary,
+        )
+    if previous_speed_t is not None and previous_speed_t.resolve() != speed_t_dictionary:
+        logger.warning(
+            "Ignoring manually selected speed/T dictionary during network conversion; "
+            "the fingerprint-matched automatic dictionary will be used: %s",
+            speed_t_dictionary,
+        )
+
+    config.qvdf_override_dictionary = qvdf_dictionary
+    config.speed_t_override_dictionary = speed_t_dictionary
+    setattr(config, "_automatic_transfer_result", result)
+    return result
+
+
 def run_network_conversion(config: AssignmentConfig) -> dict:
     from .cube2gmns import get_gmns_from_cube
 
@@ -1055,6 +1094,7 @@ def save_period_outputs(
 
 
 def run_assignment_pipeline(config: AssignmentConfig) -> bool:
+    automatic_transfer = prepare_automatic_future_transfer(config)
     config.validate()
     configure_time_period_hours(config.active_time_periods, config.period_times)
     scenario_input_dir = resolve_scenario_input_dir(config)
@@ -1083,6 +1123,17 @@ def run_assignment_pipeline(config: AssignmentConfig) -> bool:
         ),
         "stages": {},
     }
+
+    if automatic_transfer is not None:
+        conversion_profile["stages"]["automatic_future_transfer"] = {
+            "source_network_fingerprint": automatic_transfer[
+                "source_network_fingerprint"
+            ],
+            "transfer_set": automatic_transfer["transfer_set"],
+            "active_manifest": automatic_transfer["active_manifest"],
+            "qvdf_cache_action": automatic_transfer["qvdf_cache_action"],
+            "speed_t_cache_action": automatic_transfer["speed_t_cache_action"],
+        }
 
     if config.network_conversion:
         conversion_profile["stages"]["network"] = run_network_conversion(config)
