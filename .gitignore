@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 .test-artifacts/
 .tmp/
+tmp/
 .venv/
 .venv-build/
 .venv-wheel/

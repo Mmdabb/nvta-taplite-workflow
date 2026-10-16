@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Transfer base-year AM/MD/PM QVDF parameters to arbitrary future-year
+  networks with auditable exact-pair, replacement-path, geometry, corridor,
+  and link-type fallback provenance.
+- Generate separate scenario-local expanded QVDF and speed/T dictionaries;
+  packaged base-year resources remain read-only and hash-verified.
+- Carry speed anchors and complete T0/T2/T3 triplets only through exact,
+  replacement-path, and accepted high-confidence geometry lineage. Corridor
+  and link-type fallback links intentionally remain blank.
+- Allow assignment to consume the generated speed/T dictionary with
+  `--speed-t-override-dictionary` while retaining normal NT behavior.
+
 ## 0.1.0rc2 - 2026-09-03
 
 - Preserve true-shape link geometry through network conversion.

@@ -172,6 +172,9 @@ def _write_pipeline_manifest(
         )
     smoother_report_path = output_root / "qvdf_batch_report.json"
     override_manifest_path = output_root / "qvdf_override_audit" / "qvdf_override_manifest.json"
+    boundary_override_manifest_path = (
+        output_root / "speed_t_override_audit" / "speed_t_override_manifest.json"
+    )
     smoother_status = None
     if config.qvdf_smoothing and smoother_report_path.is_file():
         try:
@@ -203,6 +206,11 @@ def _write_pipeline_manifest(
             "demand_output_format": config.demand_output_format,
             "qvdf_parameter_override": config.qvdf_parameter_override,
             "qvdf_override_dictionary": str(config.resolved_qvdf_override_dictionary),
+            "speed_t_override_dictionary": (
+                str(config.speed_t_override_dictionary)
+                if config.speed_t_override_dictionary is not None
+                else None
+            ),
             "qvdf_smoothing": config.qvdf_smoothing,
             "qvdf_smoother_workers": config.qvdf_smoother_workers,
             "qvdf_smoother_backup": config.qvdf_smoother_backup,
@@ -222,6 +230,19 @@ def _write_pipeline_manifest(
             "manifest": (
                 str(override_manifest_path.resolve())
                 if override_manifest_path.is_file()
+                else None
+            ),
+        },
+        "speed_t_boundary_override": {
+            "enabled": config.speed_t_override_dictionary is not None,
+            "dictionary": (
+                str(config.speed_t_override_dictionary)
+                if config.speed_t_override_dictionary is not None
+                else None
+            ),
+            "manifest": (
+                str(boundary_override_manifest_path.resolve())
+                if boundary_override_manifest_path.is_file()
                 else None
             ),
         },
@@ -262,6 +283,7 @@ class AssignmentConfig:
     conversion_cache_dir: Path | None = None
     qvdf_parameter_override: bool = True
     qvdf_override_dictionary: Path | None = None
+    speed_t_override_dictionary: Path | None = None
     demand_output_format: str = "csv"
     work_dir: Path | None = None
     output_dir: Path | None = None
@@ -334,6 +356,7 @@ class AssignmentConfig:
             "demand_dir",
             "conversion_cache_dir",
             "qvdf_override_dictionary",
+            "speed_t_override_dictionary",
         ):
             if parsed.get(path_key) is not None:
                 parsed[path_key] = Path(parsed[path_key])
@@ -385,6 +408,13 @@ class AssignmentConfig:
                 raise FileNotFoundError(
                     "QVDF override dictionary does not exist: "
                     f"{self.resolved_qvdf_override_dictionary}"
+                )
+
+        if self.speed_t_override_dictionary is not None and self.network_conversion:
+            if not self.speed_t_override_dictionary.is_file():
+                raise FileNotFoundError(
+                    "Speed/T override dictionary does not exist: "
+                    f"{self.speed_t_override_dictionary}"
                 )
 
         if self.conversion_workers < 0:
@@ -1083,6 +1113,29 @@ def run_assignment_pipeline(config: AssignmentConfig) -> bool:
                     "normal mapped values were retained",
                     ", ".join(str(period) for period in skipped_periods),
                 )
+        if config.speed_t_override_dictionary is not None:
+            from .qvdf_boundary_overrides import apply_boundary_overrides
+
+            boundary_audit_root = scenario_output_dir / "speed_t_override_audit"
+            boundary_backup_root = boundary_audit_root / "pre-overlay-network"
+            if boundary_backup_root.exists():
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                boundary_backup_root = (
+                    boundary_audit_root / f"pre-overlay-network-{timestamp}"
+                )
+            logger.info(
+                "Applying future-network speed/T overrides from %s",
+                config.speed_t_override_dictionary,
+            )
+            boundary_override_result = apply_boundary_overrides(
+                scenario_output_dir,
+                config.speed_t_override_dictionary,
+                boundary_backup_root,
+                periods=config.active_time_periods,
+            )
+            conversion_profile["stages"]["speed_t_boundary_override"] = (
+                boundary_override_result
+            )
 
     if config.demand_conversion:
         conversion_profile["stages"]["demand"] = run_demand_conversion(config)
@@ -1228,6 +1281,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=True,
     )
     parser.add_argument("--qvdf-override-dictionary", type=Path)
+    parser.add_argument("--speed-t-override-dictionary", type=Path)
     parser.add_argument(
         "--qvdf-smoothing",
         action=argparse.BooleanOptionalAction,
@@ -1280,6 +1334,7 @@ def main() -> None:
         conversion_cache_dir=args.conversion_cache_dir,
         qvdf_parameter_override=args.qvdf_parameter_override,
         qvdf_override_dictionary=args.qvdf_override_dictionary,
+        speed_t_override_dictionary=args.speed_t_override_dictionary,
         qvdf_smoothing=args.qvdf_smoothing,
         qvdf_smoother_workers=args.qvdf_smoother_workers,
         qvdf_smoother_backup=args.qvdf_smoother_backup,

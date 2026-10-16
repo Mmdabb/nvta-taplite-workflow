@@ -18,6 +18,7 @@ from nvta_taplite_workflow.dtalite4cube.cube2gmns.funclib import (
     _loadNodes,
     _outputLink,
     _outputNode,
+    _resolve_network_shapefile,
 )
 from nvta_taplite_workflow.dtalite4cube.cube2gmns.netclass import Link, Network, Node
 from nvta_taplite_workflow.postprocessing.pipeline.link_perf_comparison import (
@@ -30,6 +31,31 @@ from nvta_taplite_workflow.postprocessing.pipeline.time_dependent_speeds import 
 
 
 class GeometryPreservationTests(unittest.TestCase):
+    def test_network_folder_prefers_true_shape_input(self):
+        input_dir = WORKFLOW_ROOT / ".test-artifacts" / str(uuid4())
+        input_dir.mkdir(parents=True)
+        comparison = input_dir / "2050vs2025.shp"
+        standard = input_dir / "DTALiteNetworkInput.shp"
+        true_shape = input_dir / "DTALiteNetworkInput_TRUESHP.shp"
+        try:
+            comparison.touch()
+            standard.touch()
+            true_shape.touch()
+            self.assertEqual(_resolve_network_shapefile(input_dir), true_shape.resolve())
+        finally:
+            shutil.rmtree(input_dir)
+
+    def test_network_folder_rejects_ambiguous_unrecognized_shapefiles(self):
+        input_dir = WORKFLOW_ROOT / ".test-artifacts" / str(uuid4())
+        input_dir.mkdir(parents=True)
+        try:
+            (input_dir / "first.shp").touch()
+            (input_dir / "second.shp").touch()
+            with self.assertRaises(FileNotFoundError):
+                _resolve_network_shapefile(input_dir)
+        finally:
+            shutil.rmtree(input_dir)
+
     def test_node_loading_ignores_unused_link_attributes(self):
         raw_network = pd.DataFrame(
             {

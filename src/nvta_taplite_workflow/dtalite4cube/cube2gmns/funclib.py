@@ -160,6 +160,31 @@ def _load_crs_from_prj(shapefile_path):
 DEFAULT_OUTPUT_CRS = "EPSG:4326"
 
 
+def _resolve_network_shapefile(shapefile_path):
+    """Select the intended Cube network instead of an arbitrary directory layer."""
+
+    path = Path(shapefile_path).resolve()
+    if path.is_file():
+        return path
+    if not path.is_dir():
+        raise FileNotFoundError(path)
+
+    candidates = {candidate.name.casefold(): candidate for candidate in path.glob("*.shp")}
+    for preferred_name in (
+        "DTALiteNetworkInput_TRUESHP.shp",
+        "DTALiteNetworkInput.shp",
+    ):
+        selected = candidates.get(preferred_name.casefold())
+        if selected is not None:
+            return selected
+    if len(candidates) == 1:
+        return next(iter(candidates.values()))
+    raise FileNotFoundError(
+        f"Could not select a network shapefile in {path}; expected "
+        "DTALiteNetworkInput_TRUESHP.shp or DTALiteNetworkInput.shp"
+    )
+
+
 def _prepare_network_crs_and_geometry(network_shapefile, shapefile_path, target_crs=DEFAULT_OUTPUT_CRS):
     if network_shapefile.crs is None:
         prj_crs = _load_crs_from_prj(shapefile_path)
@@ -184,11 +209,12 @@ def _prepare_network_crs_and_geometry(network_shapefile, shapefile_path, target_
 
 
 def loadCSVfromSHP(shapefile_path, target_crs=DEFAULT_OUTPUT_CRS):
-    print(f'Loading shapefile - {shapefile_path}  with geometry ...')
-    network_shapefile = gpd.read_file(shapefile_path)
+    resolved_shapefile = _resolve_network_shapefile(shapefile_path)
+    print(f'Loading shapefile - {resolved_shapefile}  with geometry ...')
+    network_shapefile = gpd.read_file(resolved_shapefile)
     network_shapefile, crs_text, source_crs_text = _prepare_network_crs_and_geometry(
         network_shapefile,
-        shapefile_path,
+        resolved_shapefile,
         target_crs=target_crs,
     )
     network_shapefile.attrs["crs_text"] = crs_text
