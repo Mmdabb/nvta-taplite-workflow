@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from nvta_taplite_workflow.path_resolution import resolve_scenario_and_dtalite_paths
+
 if TYPE_CHECKING:
     from nvta_taplite_workflow.dtalite4cube.runner import AssignmentConfig
 
@@ -118,22 +120,10 @@ def resolve_cube_paths(
     *,
     network_conversion: bool = True,
 ) -> tuple[Path, Path]:
-    path = Path(raw_path).expanduser().resolve()
-
-    if path.name == "DTALite" and path.parent.name == "Outputs":
-        scenario_root = path.parent.parent
-        dtalite_workdir = path
-        return scenario_root, dtalite_workdir
-
-    candidate_dtalite = path / "Outputs" / "DTALite"
-    if not network_conversion and candidate_dtalite.exists():
-        scenario_root = path
-        dtalite_workdir = candidate_dtalite
-        return scenario_root, dtalite_workdir
-
-    scenario_root = path
-    dtalite_workdir = path
-    return scenario_root, dtalite_workdir
+    # Retain the keyword for compatibility with existing callers. Path
+    # selection is intentionally independent of which pipeline stages run.
+    _ = network_conversion
+    return resolve_scenario_and_dtalite_paths(raw_path)
 
 
 def _argument_value(argv: list[str], option: str) -> str | None:
@@ -158,7 +148,8 @@ def selected_scenario_argument(args: argparse.Namespace) -> str:
     if not selected:
         raise ValueError(
             "A source network folder is required. Use --scenario-dir "
-            r'"C:\path\to\folder-containing-the-shapefile".'
+            r'"C:\path\to\Scenario". The workflow uses its Outputs\DTALite '
+            "folder when present."
         )
     return selected
 
@@ -216,7 +207,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--scenario-dir",
         dest="scenario_dir_option",
         default=None,
-        help="Required source folder containing the Cube network shapefile and demand files.",
+        help=(
+            "Required scenario folder. Uses <Scenario>\\Outputs\\DTALite when "
+            "that folder exists; otherwise uses the supplied folder directly."
+        ),
     )
     parser.add_argument("--iterations", type=int, default=10)
     parser.add_argument("--processors", type=int, default=20)

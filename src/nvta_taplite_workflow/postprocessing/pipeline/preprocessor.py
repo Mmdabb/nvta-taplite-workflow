@@ -6,6 +6,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from nvta_taplite_workflow.path_resolution import resolve_dtalite_workdir
+
 from .linkperformance_fieldconfig import (
     ALLOWED_USES_FIELD,
     DISTRICT_ID_FIELD,
@@ -47,7 +49,7 @@ logger = logging.getLogger(__name__)
 
 
 def resolve_period_file(network_dir: str | Path, time_period: str, file_name: str) -> Path:
-    network_path = Path(network_dir)
+    network_path = resolve_dtalite_workdir(network_dir)
     period_key = time_period.lower()
     period_dir = network_path / period_key
     period_path = period_dir / file_name
@@ -253,6 +255,7 @@ def link_performance_preprocess(
     filter_to_nvta_jurisdictions=True,
     output_filename="link_performance_combined_processed.csv",
 ):
+    network_dir = resolve_dtalite_workdir(network_dir)
     if length_unit not in {"mile", "meter"} or speed_unit not in {"mph", "kph"}:
         raise ValueError("Invalid units. Length must be 'mile' or 'meter', and speed must be 'mph' or 'kph'.")
     if (length_unit == "mile" and speed_unit == "kph") or (length_unit == "meter" and speed_unit == "mph"):

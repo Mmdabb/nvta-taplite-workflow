@@ -13,6 +13,9 @@ import shutil
 import tempfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
+
+from nvta_taplite_workflow.path_resolution import resolve_dtalite_workdir
+
 from .mapclass import Mapping, DependentMapping
 from .netclass import Node, Link, Network
 from .congestion_boundaries import BOUNDARY_FIELDS, apply_congestion_boundaries
@@ -163,7 +166,7 @@ DEFAULT_OUTPUT_CRS = "EPSG:4326"
 def _resolve_network_shapefile(shapefile_path):
     """Select the intended Cube network instead of an arbitrary directory layer."""
 
-    path = Path(shapefile_path).resolve()
+    path = resolve_dtalite_workdir(shapefile_path)
     if path.is_file():
         return path
     if not path.is_dir():
@@ -1238,7 +1241,10 @@ def get_gmns_from_cube(
     started = time.perf_counter()
     periods = [str(period).lower() for period in time_period_list]
     vdf_dict = get_vdf_dict(vdf_type)
-    output_root = os.path.abspath(output_dir or shapefile_path)
+    source_root = resolve_dtalite_workdir(shapefile_path)
+    output_root = os.path.abspath(
+        resolve_dtalite_workdir(output_dir) if output_dir is not None else source_root
+    )
     os.makedirs(output_root, exist_ok=True)
 
     network = Network()
@@ -1253,7 +1259,7 @@ def get_gmns_from_cube(
             cache_dir or os.path.join(output_root, ".dtalite_conversion_cache")
         )
         cache_fingerprint, cache_source_files = network_source_fingerprint(
-            shapefile_path,
+            source_root,
             target_crs=str(target_crs),
         )
         cached_payload, cached_node_path = load_network_cache(
@@ -1272,7 +1278,7 @@ def get_gmns_from_cube(
     if not cache_hit:
         # Read and reproject only once in the parent. The prepared context is
         # serialized once and loaded once by each spawned Windows worker.
-        raw_network = loadCSVfromSHP(shapefile_path, target_crs=target_crs)
+        raw_network = loadCSVfromSHP(source_root, target_crs=target_crs)
         _loadNodes(network, raw_network)
 
     node_output_dirs = (

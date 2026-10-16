@@ -8,6 +8,7 @@ from typing import Sequence
 
 from nvta_taplite_workflow.postprocessing.runner import PostprocessingConfig, run_postprocessing
 from nvta_taplite_workflow.dtalite4cube.run_logging import install_root_log_capture
+from nvta_taplite_workflow.path_resolution import is_dtalite_workdir
 
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ def parse_list(values: list[str]) -> list[str]:
 
 def resolve_scenario_root(raw_path: str) -> Path:
     path = Path(raw_path).expanduser().resolve()
-    if path.name == "DTALite" and path.parent.name == "Outputs":
+    if is_dtalite_workdir(path):
         return path.parent.parent
     return path
 

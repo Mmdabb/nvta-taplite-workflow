@@ -12,6 +12,8 @@ from pathlib import Path
 import numpy as np
 import openmatrix as omx
 
+from nvta_taplite_workflow.path_resolution import resolve_dtalite_workdir
+
 try:
     from .dtab import (
         demand_binary_path,
@@ -235,8 +237,12 @@ def get_gmns_demand_from_omx(
     """Convert OMX demand with a bounded flat period/mode/chunk process pool."""
 
     started = time.perf_counter()
-    demand_path = Path(demand_dir)
-    output_root = Path(output_base_dir) if output_base_dir is not None else demand_path
+    demand_path = resolve_dtalite_workdir(demand_dir)
+    output_root = (
+        resolve_dtalite_workdir(output_base_dir)
+        if output_base_dir is not None
+        else demand_path
+    )
     output_root.mkdir(parents=True, exist_ok=True)
     output_format = str(output_format).strip().lower()
     if output_format not in VALID_DEMAND_OUTPUT_FORMATS:

@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
+from nvta_taplite_workflow.path_resolution import resolve_dtalite_workdir
+
 from .file_utils import copy_files_parallel, resolved_workers
 from .internal_config import RUN_GMNS_READINESS_CHECK
 from .internal_config import WRITE_ASSIGNMENT_SUMMARY
@@ -308,6 +310,11 @@ class AssignmentConfig:
     qvdf_smoother_backup: bool = True
     run_gmns_readiness_check: bool = field(default=RUN_GMNS_READINESS_CHECK, init=False)
     write_assignment_summary: bool = field(default=WRITE_ASSIGNMENT_SUMMARY, init=False)
+
+    def __post_init__(self) -> None:
+        # Keep direct runner calls aligned with the client entry point: when a
+        # scenario root contains Outputs/DTALite, every stage works there.
+        self.network_path = resolve_dtalite_workdir(self.network_path)
 
     @classmethod
     def from_dict(cls, data: dict) -> "AssignmentConfig":
@@ -1053,7 +1060,7 @@ def save_period_outputs(
     extra_files: Iterable[str],
     copy_workers: int = 1,
 ) -> None:
-    output_dir = network_path / "Outputs" / "DTALite"
+    output_dir = resolve_dtalite_workdir(network_path)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     period_suffix = f"_{time_period}"

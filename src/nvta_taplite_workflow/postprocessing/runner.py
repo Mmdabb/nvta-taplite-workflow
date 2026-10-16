@@ -6,6 +6,10 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from nvta_taplite_workflow.path_resolution import (
+    resolve_dtalite_workdir as resolve_workflow_dtalite_workdir,
+)
+
 from .pipeline import (
     get_diff_stats,
     link_performance_preprocess,
@@ -64,6 +68,7 @@ class PostprocessingConfig:
 
 
 def resolve_period_output_dirs(scenario_dir: Path, time_periods: list[str]) -> dict[str, Path]:
+    scenario_dir = resolve_workflow_dtalite_workdir(scenario_dir)
     period_dirs: dict[str, Path] = {}
     for period in time_periods:
         period_key = period.lower()
@@ -120,10 +125,7 @@ def resolve_period_output_dirs(scenario_dir: Path, time_periods: list[str]) -> d
 
 
 def resolve_dtalite_workdir(scenario_dir: Path) -> Path:
-    candidate_dtalite = scenario_dir / "Outputs" / "DTALite"
-    if candidate_dtalite.exists():
-        return candidate_dtalite
-    return scenario_dir
+    return resolve_workflow_dtalite_workdir(scenario_dir)
 
 
 def prepare_dtalite_outputs(scenario_dir: Path, time_periods: list[str]) -> Path:

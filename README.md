@@ -85,9 +85,12 @@ python -m nvta_taplite_workflow version
 ### Future-network QVDF transfer
 
 Future-network transfer is automatic whenever assignment runs with network
-conversion enabled (the default). The client only runs the normal assignment
-command. The workflow selects the network shapefile, fingerprints its full
-contents, and creates or reuses a matching transfer set under:
+conversion enabled (the default). The client only supplies the scenario root to
+the normal assignment command. When `<Scenario>\Outputs\DTALite` exists, every
+stage uses it for the shapefile, demand inputs, converted period folders, and
+assignment outputs; otherwise the supplied folder is used directly. The
+workflow fingerprints the selected network and creates or reuses a matching
+transfer set under:
 
 ```text
 <folder-containing-the-shapefile>\NVTA_Attribute_Transfer\sets\network-<fingerprint>

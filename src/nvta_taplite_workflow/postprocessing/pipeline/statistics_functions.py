@@ -1,11 +1,14 @@
-import pandas as pd
 import os
 import traceback
 import sys
 import csv
-import numpy as np
 import logging
 from dataclasses import dataclass
+
+import numpy as np
+import pandas as pd
+
+from nvta_taplite_workflow.path_resolution import resolve_dtalite_workdir
 from nvta_taplite_workflow.dtalite4cube.settings.generate_dtalite_settings import (
     normalize_dtalite_period_hours,
     parse_period_time_hours,
@@ -251,6 +254,7 @@ def spd_cls_stats(bd_link_perf, nb_link_perf, period_name, output_folder):
 def performance_summary(link_performance_combined, network_dir, time_duration_dict, length_unit='mile',
                         speed_unit='mph', developer_mode=0, output_filename='statistics_data.csv'):
     print("Generating performance summary ...")
+    network_dir = resolve_dtalite_workdir(network_dir)
 
     if length_unit not in {'mile', 'meter'} or speed_unit not in {'mph', 'kph'}:
         sys.exit("Error: Invalid units. Length must be 'mile' or 'meter', and speed must be 'mph' or 'kph'.")
