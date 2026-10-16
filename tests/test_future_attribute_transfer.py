@@ -10,8 +10,11 @@ import pandas as pd
 from shapely.geometry import LineString
 
 from nvta_taplite_workflow.dtalite4cube.future_attribute_transfer import (
+    BOUNDARY_FIELDS,
+    BoundaryResourcePaths,
     FrameworkConfig,
     QVDF_FIELDS,
+    _build_future_boundary_dictionary,
     _fallback_values,
     build_transfer_crosswalk,
     run_transfer,
@@ -224,6 +227,149 @@ class FutureAttributeTransferTests(unittest.TestCase):
             "link_type_incompatible", result.loc[1, "corridor_rejection_reason"]
         )
 
+    def test_speed_t_expansion_uses_only_link_level_lineage(self) -> None:
+        with tempfile.TemporaryDirectory(
+            dir=Path.cwd(), ignore_cleanup_errors=True
+        ) as temporary_directory:
+            root = Path(temporary_directory)
+            speed_dir = root / "speed"
+            observed_t_dir = root / "observed-t"
+            congestion_dir = root / "congestion"
+            speed_dir.mkdir()
+            observed_t_dir.mkdir()
+            congestion_dir.mkdir()
+            pairs = [(1, 2), (10, 20)]
+            packed = [(a << 32) | b for a, b in pairs]
+
+            speed_dtype = [
+                ("packed_key", "<u8"),
+                ("from_node_id", "<u4"),
+                ("to_node_id", "<u4"),
+                *[
+                    (f"qvdf_{side}_speed_mph_{period}", "<f4")
+                    for period in ("am", "md", "pm")
+                    for side in ("start", "end")
+                ],
+            ]
+            speed_rows = []
+            for pair_index, ((a, b), key) in enumerate(zip(pairs, packed)):
+                speed_rows.append(
+                    (key, a, b, *[40.0 + pair_index + i for i in range(6)])
+                )
+            np.save(
+                speed_dir / "observed_link_speed_boundaries.npy",
+                np.array(speed_rows, dtype=np.dtype(speed_dtype)),
+            )
+
+            observed_t_dtype = [
+                ("packed_key", "<u8"),
+                ("from_node_id", "<u4"),
+                ("to_node_id", "<u4"),
+                *[
+                    (f"observed_{field}_hour_{period}", "<f4")
+                    for period in ("am", "md", "pm")
+                    for field in ("t0", "t2", "t3")
+                ],
+            ]
+            np.save(
+                observed_t_dir / "observed_link_t2.npy",
+                np.array(
+                    [
+                        (
+                            packed[0],
+                            1,
+                            2,
+                            6.0,
+                            7.0,
+                            8.0,
+                            np.nan,
+                            np.nan,
+                            np.nan,
+                            15.0,
+                            16.0,
+                            17.0,
+                        )
+                    ],
+                    dtype=np.dtype(observed_t_dtype),
+                ),
+            )
+            base_t_dtype = np.dtype(
+                [
+                    ("packed_key", "<u8"),
+                    ("from_node_id", "<u4"),
+                    ("to_node_id", "<u4"),
+                    ("t0_hour", "<f4"),
+                    ("t2_hour", "<f4"),
+                    ("t3_hour", "<f4"),
+                ]
+            )
+            for period_index, period in enumerate(("am", "md", "pm")):
+                np.save(
+                    congestion_dir / f"{period}_node_pair_boundaries.npy",
+                    np.array(
+                        [
+                            (
+                                key,
+                                a,
+                                b,
+                                5.0 + period_index,
+                                6.0 + period_index,
+                                7.0 + period_index,
+                            )
+                            for (a, b), key in zip(pairs, packed)
+                        ],
+                        dtype=base_t_dtype,
+                    ),
+                )
+
+            resources = BoundaryResourcePaths(
+                speed_directory=speed_dir,
+                observed_t_directory=observed_t_dir,
+                congestion_t_directory=congestion_dir,
+            )
+            source_bytes = {
+                path: path.read_bytes()
+                for path in resources.resolved_files().values()
+            }
+            crosswalk = pd.DataFrame(
+                [
+                    {"future_a": 1, "future_b": 2, "base_a": 1, "base_b": 2, "match_method": "EXACT_AB"},
+                    {"future_a": 1, "future_b": 3, "base_a": 1, "base_b": 2, "match_method": "REPLACEMENT_PATH"},
+                    {"future_a": 101, "future_b": 102, "base_a": 10, "base_b": 20, "match_method": "GEOMETRY"},
+                    {"future_a": 201, "future_b": 202, "base_a": np.nan, "base_b": np.nan, "match_method": "CORRIDOR"},
+                    {"future_a": 301, "future_b": 302, "base_a": np.nan, "base_b": np.nan, "match_method": "LINK_TYPE_FALLBACK"},
+                ]
+            )
+            expanded, audit, _, _ = _build_future_boundary_dictionary(
+                crosswalk, resources
+            )
+
+            for pair in ((1, 2), (1, 3), (101, 102)):
+                self.assertTrue(
+                    np.isfinite(
+                        [expanded[pair][field] for field in BOUNDARY_FIELDS]
+                    ).any()
+                )
+            self.assertEqual(expanded[(1, 2)]["t0_hour_am"], 6.0)
+            self.assertTrue(np.isnan(expanded[(1, 2)]["t0_hour_md"]))
+            self.assertEqual(expanded[(1, 2)]["t0_hour_pm"], 15.0)
+            for pair in ((201, 202), (301, 302)):
+                self.assertTrue(
+                    np.isnan([expanded[pair][field] for field in BOUNDARY_FIELDS]).all()
+                )
+            self.assertEqual(
+                audit["boundary_transfer_policy"].tolist(),
+                [
+                    "BASE_LINK_LINEAGE",
+                    "BASE_LINK_LINEAGE",
+                    "BASE_LINK_LINEAGE",
+                    "INTENTIONALLY_BLANK",
+                    "INTENTIONALLY_BLANK",
+                ],
+            )
+            for path, content in source_bytes.items():
+                self.assertEqual(path.read_bytes(), content)
+
     def test_corridor_fallback_and_run_local_expanded_dictionary(self) -> None:
         future = _network(
             [
@@ -336,7 +482,15 @@ class FutureAttributeTransferTests(unittest.TestCase):
             self.assertEqual(transferred["QVDF_plf1"], fallback["QVDF_plf1"])
             self.assertEqual(transferred["QVDF_n2"], fallback["QVDF_n2"])
             self.assertTrue((result_dir / "expanded_node_pair_qvdf.csv").is_file())
+            boundary_values = np.load(
+                result_dir / "future_speed_t_overrides.npy", allow_pickle=True
+            ).item()[(101, 102)]
+            self.assertTrue(
+                np.isnan([boundary_values[field] for field in BOUNDARY_FIELDS]).all()
+            )
+            self.assertTrue((result_dir / "expanded_speed_t_overrides.csv").is_file())
             self.assertFalse(summary["base_dictionary_modified"])
+            self.assertFalse(summary["base_boundary_resources_modified"])
             self.assertIn("read-only input", summary["base_dictionary_policy"])
             self.assertEqual(dictionary_path.read_bytes(), source_bytes)
 
@@ -351,6 +505,9 @@ class FutureAttributeTransferTests(unittest.TestCase):
                 write_spatial=False,
             )
             self.assertEqual(reused["expanded_dictionary_action"], "reused")
+            self.assertEqual(
+                reused["expanded_boundary_dictionary_action"], "reused"
+            )
             self.assertEqual(reused["corridor_dictionary"]["action"], "reused")
             self.assertFalse(reused["base_dictionary_modified"])
             self.assertEqual(dictionary_path.read_bytes(), source_bytes)

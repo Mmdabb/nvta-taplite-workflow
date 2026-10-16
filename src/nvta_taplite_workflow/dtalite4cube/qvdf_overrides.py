@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
@@ -24,6 +26,19 @@ PARAMETER_COLUMNS = {
     "beta": "vdf_beta",
 }
 PERIOD_SEQUENCE = {"am": 1, "md": 2, "pm": 3}
+
+
+def _replace_with_windows_retry(source: Path, target: Path) -> None:
+    """Atomically replace a CSV despite short-lived scanner/Dropbox locks."""
+
+    for attempt in range(60):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if attempt == 59:
+                raise
+            time.sleep(0.25)
 
 
 def _sha256(path: Path) -> str:
@@ -171,7 +186,7 @@ def apply_overrides(
         temporary_path = link_path.with_suffix(".csv.qvdf-overlay.tmp")
         try:
             merged.to_csv(temporary_path, index=False)
-            temporary_path.replace(link_path)
+            _replace_with_windows_retry(temporary_path, link_path)
         finally:
             temporary_path.unlink(missing_ok=True)
 

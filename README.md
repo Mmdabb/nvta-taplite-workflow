@@ -102,10 +102,74 @@ GeoPackage crosswalk, the missing-pair log, and a JSON summary. It also creates
 `expanded_node_pair_qvdf.csv` beside the log and reuses that run-local expansion
 when all input fingerprints still match. Corridor fits supply `n`, `s`, `cp`,
 `cd`, `alpha`, and `beta`; `PLF`/`QDF` and unavailable corridor periods retain
-the link-type fallback. Pass the generated NPY dictionary to assignment with
-`--qvdf-override-dictionary`. The packaged base-year dictionary is never
-modified by transfer: it is treated as read-only, checked by hash before and
-after processing, and cannot share a path with the generated future dictionary.
+the link-type fallback. The separate `future_speed_t_overrides.npy` carries
+period speed anchors and complete T0/T2/T3 triplets only through exact,
+replacement-path, or accepted high-confidence geometry lineage. Corridor and
+link-type fallback rows remain blank. Pass both generated dictionaries to
+assignment:
+
+```powershell
+python -m nvta_taplite_workflow assignment --scenario-dir "C:\path\to\scenario" `
+  --qvdf-override-dictionary "C:\path\to\future_qvdf_node_pair_overrides.npy" `
+  --speed-t-override-dictionary "C:\path\to\future_speed_t_overrides.npy"
+```
+
+The packaged base-year QVDF and speed/T resources are never modified or
+expanded in place. They are treated as read-only, checked by hash before and
+after processing, and cannot share paths with the generated future dictionaries.
+
+#### Supported scope and future-network editing rules
+
+The transfer command is not tied to the year 2050. It can process any
+future-year network that has unique directed `A`/`B` node pairs, valid line
+geometry and CRS information, and numeric `ATYPE`/`FTYPE` values. It produces
+complete AM, MD, and PM QVDF coverage (`plf`, `qdf`, `n`, `s`, `cp`, `cd`,
+`alpha`, and `beta`) for every future link. AM, MD, and PM speed anchors and
+T0/T2/T3 are transferred only when an accepted base-link lineage exists. NT
+retains the normal assignment workflow's mapped values. A complete QVDF output
+dictionary does not mean that every new link received link-specific base
+calibration: the crosswalk records whether each value came from a base link,
+an accepted corridor fit, or the link-type fallback.
+
+Do:
+
+- Preserve stable node IDs and directed `A` to `B` orientation for physically
+  unchanged links.
+- When splitting a calibrated link, keep a connected directed path between
+  the original endpoints, use new intermediate node IDs, and retain realistic
+  geometry, street name, `ATYPE`, and `FTYPE` attributes.
+- Give genuinely new or substantially realigned facilities new node pairs.
+- Keep geometries spatially accurate and use a valid CRS. The 2025 NVTA base
+  network is in US survey feet; spatial matching thresholds are evaluated in
+  that base CRS after the future network is reprojected.
+- Use a separate output directory for each scenario/year and inspect
+  `attribute_transfer_crosswalk.csv`, `missing_2025_node_pairs.csv`, and every
+  row with `review_flag=1` before assignment.
+- Pass that scenario's generated `future_qvdf_node_pair_overrides.npy` and
+  `future_speed_t_overrides.npy` to assignment with their respective options.
+
+Don't:
+
+- Do not reuse an existing directed node pair for a different physical link,
+  corridor, or alignment. Exact `A`/`B` is intentionally the strongest match
+  and will retain the old calibration.
+- Do not reverse `A` and `B`, move a link to another corridor, or make a major
+  realignment while expecting the old link-specific calibration to remain
+  valid. Model it as a new directed pair and review its fallback instead.
+- Do not merge multiple independently calibrated links into one link without
+  manual review; the automated framework has explicit split-path recovery but
+  no equivalent many-to-one calibration rule.
+- Do not change `ATYPE`/`FTYPE` merely to force a match. They are both matching
+  evidence and the source of the final safety fallback.
+- Do not treat street name alone as corridor membership. Corridor recovery
+  also requires spatial confidence, direction alignment, and compatible link
+  types.
+- Do not fill speed anchors or T0/T2/T3 from corridor or link type. Without
+  accepted link-level lineage, blank values intentionally select TAPlite's
+  analytical/free-speed behavior.
+- Do not point transfer output at the packaged base dictionary, edit that base
+  resource, or reuse a stale scenario cache after network/configuration edits.
+  Use a new output directory or explicitly request a cache rebuild.
 
 Postprocessing writes two daily link-performance files and two matching
 statistics files under the DTALite output folder:

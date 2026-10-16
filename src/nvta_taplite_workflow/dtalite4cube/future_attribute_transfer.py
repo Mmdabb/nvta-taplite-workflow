@@ -36,6 +36,18 @@ from shapely.geometry import LineString
 
 from .cube2gmns.fieldnameconfig import qvdf_params
 from .cube2gmns.vdf_lookup_tables import get_vdf_dict
+from .resources.congestion_t_node_pair_lookup.load_node_pair_boundaries import (
+    lookup as lookup_base_boundaries,
+    period_path as base_boundary_period_path,
+)
+from .resources.observed_link_speed_boundary_lookup.load_observed_link_speed_boundaries import (
+    lookup as lookup_observed_speed_boundaries,
+    lookup_path as observed_speed_boundary_path,
+)
+from .resources.observed_link_t2_lookup.load_observed_link_t2 import (
+    lookup as lookup_observed_boundaries,
+    lookup_path as observed_boundary_path,
+)
 
 
 PERIOD_SEQUENCE = {"am": 1, "md": 2, "pm": 3}
@@ -68,6 +80,21 @@ CORRIDOR_CACHE_COLUMNS = (
 )
 EXPANDED_DICTIONARY_NAME = "expanded_node_pair_qvdf.csv"
 EXPANDED_MANIFEST_NAME = "expanded_node_pair_qvdf_manifest.json"
+EXPANDED_BOUNDARY_NAME = "expanded_speed_t_overrides.csv"
+EXPANDED_BOUNDARY_MANIFEST_NAME = "expanded_speed_t_overrides_manifest.json"
+FUTURE_BOUNDARY_DICTIONARY_NAME = "future_speed_t_overrides.npy"
+BOUNDARY_TRANSFER_METHODS = frozenset({"EXACT_AB", "REPLACEMENT_PATH", "GEOMETRY"})
+BOUNDARY_FIELDS = tuple(
+    f"{field}_{period}"
+    for period in PERIOD_SEQUENCE
+    for field in (
+        "qvdf_start_speed_mph",
+        "qvdf_end_speed_mph",
+        "t0_hour",
+        "t2_hour",
+        "t3_hour",
+    )
+)
 
 
 @dataclass(frozen=True)
@@ -87,6 +114,30 @@ class FrameworkConfig:
     corridor_min_margin: float = 0.08
     corridor_min_direction_score: float = 0.70
     corridor_min_link_type_score: float = 0.50
+
+
+@dataclass(frozen=True)
+class BoundaryResourcePaths:
+    """Read-only base-year resources used to expand speed/T overrides."""
+
+    speed_directory: Path | None = None
+    observed_t_directory: Path | None = None
+    congestion_t_directory: Path | None = None
+
+    def resolved_files(self) -> dict[str, Path]:
+        files = {
+            "observed_speed_boundaries": observed_speed_boundary_path(
+                self.speed_directory
+            ).resolve(),
+            "observed_t_boundaries": observed_boundary_path(
+                self.observed_t_directory
+            ).resolve(),
+        }
+        for period in PERIOD_SEQUENCE:
+            files[f"base_{period}_boundaries"] = base_boundary_period_path(
+                period, self.congestion_t_directory
+            ).resolve()
+        return files
 
 
 def _sha256(path: Path) -> str:
@@ -994,6 +1045,173 @@ def _write_expanded_dictionary(
     expanded.to_csv(path, index=False)
 
 
+def _boundary_resource_hashes(
+    resources: BoundaryResourcePaths,
+) -> tuple[dict[str, Path], dict[str, str]]:
+    files = resources.resolved_files()
+    missing = [str(path) for path in files.values() if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(
+            "Missing base speed/T calibration resource(s): " + ", ".join(missing)
+        )
+    return files, {name: _sha256(path) for name, path in files.items()}
+
+
+def _base_boundary_lookup(
+    source_pairs: list[tuple[int, int]],
+    resource_files: dict[str, Path],
+) -> dict[tuple[int, int], dict[str, float]]:
+    """Resolve the converter's final base-year speed and T values by period."""
+
+    if not source_pairs:
+        return {}
+    from_ids = np.asarray([pair[0] for pair in source_pairs], dtype=np.uint64)
+    to_ids = np.asarray([pair[1] for pair in source_pairs], dtype=np.uint64)
+    speed_table = np.load(
+        resource_files["observed_speed_boundaries"], allow_pickle=False
+    )
+    observed_t_table = np.load(
+        resource_files["observed_t_boundaries"], allow_pickle=False
+    )
+    result = {pair: {field: float("nan") for field in BOUNDARY_FIELDS} for pair in source_pairs}
+
+    for period in PERIOD_SEQUENCE:
+        speed_values, speed_found = lookup_observed_speed_boundaries(
+            speed_table, period, from_ids, to_ids
+        )
+        base_t_table = np.load(
+            resource_files[f"base_{period}_boundaries"], allow_pickle=False
+        )
+        base_t_values, base_t_found = lookup_base_boundaries(
+            base_t_table, from_ids, to_ids
+        )
+        observed_t_values, observed_t_found = lookup_observed_boundaries(
+            observed_t_table, period, from_ids, to_ids
+        )
+        observed_complete = np.isfinite(observed_t_values).all(axis=1)
+        observed_partial = (
+            np.isfinite(observed_t_values).any(axis=1) & ~observed_complete
+        )
+        if np.any(observed_t_found & observed_partial):
+            raise ValueError(
+                f"Observed {period.upper()} boundary resource contains partial "
+                "T0/T2/T3 triplets"
+            )
+
+        for position, pair in enumerate(source_pairs):
+            if speed_found[position]:
+                result[pair][f"qvdf_start_speed_mph_{period}"] = float(
+                    speed_values[position, 0]
+                )
+                result[pair][f"qvdf_end_speed_mph_{period}"] = float(
+                    speed_values[position, 1]
+                )
+
+            t_values = np.full(3, np.nan, dtype=float)
+            if base_t_found[position]:
+                t_values = base_t_values[position].astype(float, copy=True)
+            if observed_t_found[position]:
+                # This mirrors conversion: a complete accepted observed episode
+                # replaces all three values; a matched no-episode row clears them.
+                t_values = (
+                    observed_t_values[position].astype(float, copy=True)
+                    if observed_complete[position]
+                    else np.full(3, np.nan, dtype=float)
+                )
+            for field, value in zip(("t0_hour", "t2_hour", "t3_hour"), t_values):
+                result[pair][f"{field}_{period}"] = float(value)
+    return result
+
+
+def _build_future_boundary_dictionary(
+    crosswalk: pd.DataFrame,
+    resources: BoundaryResourcePaths,
+    *,
+    resource_files: dict[str, Path] | None = None,
+    resource_hashes: dict[str, str] | None = None,
+) -> tuple[
+    dict[tuple[int, int], dict[str, float]],
+    pd.DataFrame,
+    dict[str, Path],
+    dict[str, str],
+]:
+    """Expand speed/T values only through accepted link-level lineage."""
+
+    if resource_files is None or resource_hashes is None:
+        resource_files, resource_hashes = _boundary_resource_hashes(resources)
+    source_pairs = sorted(
+        {
+            (int(row.base_a), int(row.base_b))
+            for row in crosswalk.itertuples(index=False)
+            if row.match_method in BOUNDARY_TRANSFER_METHODS
+            and pd.notna(row.base_a)
+            and pd.notna(row.base_b)
+        }
+    )
+    base_values = _base_boundary_lookup(source_pairs, resource_files)
+    future_dictionary: dict[tuple[int, int], dict[str, float]] = {}
+    audit_rows: list[dict[str, object]] = []
+    for row in crosswalk.itertuples(index=False):
+        future_pair = (int(row.future_a), int(row.future_b))
+        accepted = (
+            row.match_method in BOUNDARY_TRANSFER_METHODS
+            and pd.notna(row.base_a)
+            and pd.notna(row.base_b)
+        )
+        source_pair = (
+            (int(row.base_a), int(row.base_b)) if accepted else None
+        )
+        values = (
+            dict(base_values[source_pair])
+            if source_pair is not None
+            else {field: float("nan") for field in BOUNDARY_FIELDS}
+        )
+        future_dictionary[future_pair] = values
+        audit_rows.append(
+            {
+                "future_a": future_pair[0],
+                "future_b": future_pair[1],
+                "match_method": row.match_method,
+                "boundary_source_a": source_pair[0] if source_pair else np.nan,
+                "boundary_source_b": source_pair[1] if source_pair else np.nan,
+                "boundary_transfer_policy": (
+                    "BASE_LINK_LINEAGE"
+                    if source_pair is not None
+                    else "INTENTIONALLY_BLANK"
+                ),
+                **values,
+            }
+        )
+    return (
+        future_dictionary,
+        pd.DataFrame(audit_rows),
+        resource_files,
+        resource_hashes,
+    )
+
+
+def _load_future_boundary_dictionary(
+    path: Path,
+) -> dict[tuple[int, int], dict[str, float]]:
+    payload = np.load(path, allow_pickle=True).item()
+    if not isinstance(payload, dict):
+        raise TypeError("Future speed/T override resource must contain one dictionary")
+    result: dict[tuple[int, int], dict[str, float]] = {}
+    for key, values in payload.items():
+        if not isinstance(key, tuple) or len(key) != 2 or not isinstance(values, dict):
+            raise ValueError("Invalid future speed/T node-pair dictionary entry")
+        missing = set(BOUNDARY_FIELDS).difference(values)
+        if missing:
+            raise ValueError(
+                f"Future speed/T entry {key} is missing: "
+                + ", ".join(sorted(missing))
+            )
+        result[(int(key[0]), int(key[1]))] = {
+            field: float(values[field]) for field in BOUNDARY_FIELDS
+        }
+    return result
+
+
 def run_transfer(
     *,
     base_network_path: Path,
@@ -1006,19 +1224,32 @@ def run_transfer(
     corridor_root: Path | None = None,
     rebuild_corridor_dictionary: bool = False,
     rebuild_expanded_dictionary: bool = False,
+    boundary_resources: BoundaryResourcePaths | None = None,
 ) -> dict[str, object]:
     """Run a transfer policy and write the future dictionary and QA artifacts."""
 
     method = method.strip().lower()
     config = config or FrameworkConfig()
     dictionary_path = Path(calibration_dictionary_path).resolve()
+    boundary_resources = boundary_resources or BoundaryResourcePaths()
+    boundary_resource_files, base_boundary_resource_hashes = (
+        _boundary_resource_hashes(boundary_resources)
+    )
     output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     dictionary_output = output_dir / "future_qvdf_node_pair_overrides.npy"
+    boundary_dictionary_output = output_dir / FUTURE_BOUNDARY_DICTIONARY_NAME
     if dictionary_output.resolve() == dictionary_path:
         raise ValueError(
             "The expanded future dictionary output cannot replace the base "
             "calibration dictionary"
+        )
+    if boundary_dictionary_output.resolve() in {
+        path.resolve() for path in boundary_resource_files.values()
+    }:
+        raise ValueError(
+            "The expanded future speed/T output cannot replace a base-year "
+            "boundary resource"
         )
     base_path, base = _load_network(base_network_path)
     future_path, future = _load_network(future_network_path)
@@ -1145,6 +1376,92 @@ def run_transfer(
 
     np.save(dictionary_output, future_dictionary, allow_pickle=True)
 
+    expanded_boundary_output = output_dir / EXPANDED_BOUNDARY_NAME
+    expanded_boundary_manifest_output = output_dir / EXPANDED_BOUNDARY_MANIFEST_NAME
+    boundary_signature = {
+        "schema_version": 1,
+        "transfer_input_signature": signature,
+        "base_boundary_resource_sha256": base_boundary_resource_hashes,
+        "accepted_match_methods": sorted(BOUNDARY_TRANSFER_METHODS),
+    }
+    boundary_action = "created"
+    boundary_cache_files = (
+        boundary_dictionary_output,
+        expanded_boundary_output,
+        expanded_boundary_manifest_output,
+    )
+    if any(path.exists() for path in boundary_cache_files):
+        if not all(path.is_file() for path in boundary_cache_files):
+            raise ValueError(
+                "The expanded speed/T cache is incomplete; use a new output "
+                "directory or request an expanded-dictionary rebuild"
+            )
+        boundary_manifest = json.loads(
+            expanded_boundary_manifest_output.read_text(encoding="utf-8")
+        )
+        existing_boundary_signature = boundary_manifest.get("input_signature")
+        if (
+            existing_boundary_signature != boundary_signature
+            and not rebuild_expanded_dictionary
+        ):
+            raise ValueError(
+                "The existing expanded speed/T dictionary was built from different "
+                "inputs. Use a new output directory or --rebuild-expanded-dictionary."
+            )
+        if (
+            existing_boundary_signature == boundary_signature
+            and not rebuild_expanded_dictionary
+        ):
+            future_boundary_dictionary = _load_future_boundary_dictionary(
+                boundary_dictionary_output
+            )
+            future_boundary_audit = pd.read_csv(
+                expanded_boundary_output, low_memory=False
+            )
+            boundary_action = "reused"
+        else:
+            boundary_action = "rebuilt"
+
+    if boundary_action != "reused":
+        (
+            future_boundary_dictionary,
+            future_boundary_audit,
+            _,
+            _,
+        ) = _build_future_boundary_dictionary(
+            crosswalk,
+            boundary_resources,
+            resource_files=boundary_resource_files,
+            resource_hashes=base_boundary_resource_hashes,
+        )
+        np.save(
+            boundary_dictionary_output,
+            future_boundary_dictionary,
+            allow_pickle=True,
+        )
+        future_boundary_audit.to_csv(expanded_boundary_output, index=False)
+        expanded_boundary_manifest_output.write_text(
+            json.dumps(
+                {
+                    "created_utc": datetime.now(timezone.utc).isoformat(),
+                    "input_signature": boundary_signature,
+                    "rows": len(future_boundary_dictionary),
+                    "expanded_csv_sha256": _sha256(expanded_boundary_output),
+                    "future_dictionary_sha256": _sha256(
+                        boundary_dictionary_output
+                    ),
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    if set(future_boundary_dictionary) != expected_pairs:
+        raise ValueError(
+            "Expanded speed/T dictionary does not match the future network"
+        )
+
     crosswalk_output = output_dir / "attribute_transfer_crosswalk.csv"
     crosswalk_to_write = crosswalk.copy()
     crosswalk_to_write.to_csv(crosswalk_output, index=False)
@@ -1191,6 +1508,28 @@ def run_transfer(
         raise RuntimeError(
             "Base calibration dictionary changed during future-network transfer"
         )
+    final_boundary_resource_hashes = {
+        name: _sha256(path) for name, path in boundary_resource_files.items()
+    }
+    if final_boundary_resource_hashes != base_boundary_resource_hashes:
+        raise RuntimeError(
+            "A base-year speed/T calibration resource changed during transfer"
+        )
+    boundary_coverage = {}
+    for period in PERIOD_SEQUENCE:
+        speed_values = future_boundary_audit[
+            [
+                f"qvdf_start_speed_mph_{period}",
+                f"qvdf_end_speed_mph_{period}",
+            ]
+        ].apply(pd.to_numeric, errors="coerce")
+        t_values = future_boundary_audit[
+            [f"t0_hour_{period}", f"t2_hour_{period}", f"t3_hour_{period}"]
+        ].apply(pd.to_numeric, errors="coerce")
+        boundary_coverage[period.upper()] = {
+            "complete_speed_anchor_links": int(speed_values.notna().all(axis=1).sum()),
+            "complete_t_triplet_links": int(t_values.notna().all(axis=1).sum()),
+        }
     review_count = int(crosswalk["review_flag"].sum())
     summary = {
         "status": "PASS",
@@ -1204,6 +1543,11 @@ def run_transfer(
         "base_dictionary_policy": (
             "read-only input; expanded CSV and NPY are written only under output_dir"
         ),
+        "base_boundary_resources": {
+            name: {"path": str(path), "sha256": base_boundary_resource_hashes[name]}
+            for name, path in boundary_resource_files.items()
+        },
+        "base_boundary_resources_modified": False,
         "base_links": int(len(base)),
         "calibrated_2025_pairs": int(len(dictionary)),
         "future_links": int(len(future)),
@@ -1213,6 +1557,9 @@ def run_transfer(
         "review_links": review_count,
         "review_share_pct": round(100.0 * review_count / len(future), 4),
         "expanded_dictionary_action": expanded_action,
+        "expanded_boundary_dictionary_action": boundary_action,
+        "boundary_transfer_methods": sorted(BOUNDARY_TRANSFER_METHODS),
+        "boundary_coverage": boundary_coverage,
         "corridor_dictionary": corridor_metadata,
         "qvdf_fields_transferred": list(QVDF_FIELDS),
         "corridor_parameter_policy": (
@@ -1222,14 +1569,21 @@ def run_transfer(
             if corridor_metadata
             else "No corridor source supplied"
         ),
-        "non_qvdf_unmatched_policy": (
-            "leave empty; this transfer dictionary contains only QVDF parameters"
+        "speed_t_transfer_policy": (
+            "Transfer base-year speed anchors and complete T0/T2/T3 lineage only "
+            "for exact, replacement-path, and high-confidence geometry matches; "
+            "corridor and link-type fallback rows remain blank"
         ),
         "configuration": config.__dict__,
         "outputs": {
             "future_dictionary": str(dictionary_output),
             "expanded_dictionary_csv": str(expanded_output),
             "expanded_dictionary_manifest": str(expanded_manifest_output),
+            "future_speed_t_dictionary": str(boundary_dictionary_output),
+            "expanded_speed_t_csv": str(expanded_boundary_output),
+            "expanded_speed_t_manifest": str(
+                expanded_boundary_manifest_output
+            ),
             "crosswalk_csv": str(crosswalk_output),
             "missing_pair_log": str(missing_output),
             "crosswalk_gpkg": str(spatial_output) if spatial_output else None,
@@ -1242,6 +1596,9 @@ def run_transfer(
 
 
 __all__ = [
+    "BOUNDARY_FIELDS",
+    "BOUNDARY_TRANSFER_METHODS",
+    "BoundaryResourcePaths",
     "FrameworkConfig",
     "PERIOD_SEQUENCE",
     "QVDF_FIELDS",

@@ -303,6 +303,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--speed-t-override-dictionary",
+        type=Path,
+        default=None,
+        help=(
+            "Optional scenario-local speed-anchor and T0/T2/T3 dictionary "
+            "created by the future-network transfer command."
+        ),
+    )
+    parser.add_argument(
         "--qvdf-smoothing",
         type=str_to_bool,
         default=True,
@@ -368,6 +377,12 @@ def build_config(args: argparse.Namespace) -> AssignmentConfig:
         if not qvdf_override_dictionary.is_absolute():
             qvdf_override_dictionary = scenario_root / qvdf_override_dictionary
         qvdf_override_dictionary = qvdf_override_dictionary.resolve()
+    speed_t_override_dictionary = args.speed_t_override_dictionary
+    if speed_t_override_dictionary is not None:
+        speed_t_override_dictionary = speed_t_override_dictionary.expanduser()
+        if not speed_t_override_dictionary.is_absolute():
+            speed_t_override_dictionary = scenario_root / speed_t_override_dictionary
+        speed_t_override_dictionary = speed_t_override_dictionary.resolve()
     return AssignmentConfig(
         network_path=dtalite_workdir,
         scenario_name=scenario_root.name,
@@ -390,6 +405,7 @@ def build_config(args: argparse.Namespace) -> AssignmentConfig:
         conversion_cache_dir=conversion_cache_dir,
         qvdf_parameter_override=args.qvdf_parameter_override,
         qvdf_override_dictionary=qvdf_override_dictionary,
+        speed_t_override_dictionary=speed_t_override_dictionary,
         qvdf_smoothing=args.qvdf_smoothing,
         qvdf_smoother_workers=args.qvdf_smoother_workers,
         qvdf_smoother_backup=args.qvdf_smoother_backup,
@@ -432,6 +448,11 @@ def log_config(config: AssignmentConfig, scenario_root: Path) -> None:
         "Post-mapping QVDF override: enabled=%s dictionary=%s",
         config.qvdf_parameter_override,
         config.resolved_qvdf_override_dictionary,
+    )
+    logger.info(
+        "Post-mapping speed/T override: enabled=%s dictionary=%s",
+        config.speed_t_override_dictionary is not None,
+        config.speed_t_override_dictionary or "<none>",
     )
     logger.info(
         "QVDF smoothing: enabled=%s workers=%s backup=%s",
