@@ -34,6 +34,8 @@ import numpy as np
 import pandas as pd
 from shapely.geometry import LineString
 
+from nvta_taplite_workflow.path_resolution import resolve_dtalite_workdir
+
 from .cube2gmns.fieldnameconfig import qvdf_params
 from .cube2gmns.vdf_lookup_tables import get_vdf_dict
 from .resources.congestion_t_node_pair_lookup.load_node_pair_boundaries import (
@@ -398,7 +400,7 @@ def _load_corridor_cache(
 
 
 def _resolve_network_path(path: Path) -> Path:
-    path = Path(path).resolve()
+    path = resolve_dtalite_workdir(path)
     if path.is_file():
         return path
     if not path.is_dir():

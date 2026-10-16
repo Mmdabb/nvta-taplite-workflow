@@ -5,12 +5,14 @@ once, then use either the Python or batch launchers with the documented command
 arguments. Future workflow and resource releases are installed by
 `update_environment.bat` or by rerunning setup.
 
-When network conversion is enabled, future-network calibration transfer is
-automatic. The workflow creates or reuses a fingerprint-matched
-`NVTA_Attribute_Transfer` folder beside the scenario shapefile; clients do not
-select or manage dictionary files. Moving the shapefile to another folder is a
-first-time run at that location; dictionaries are never reused across
-shapefile folders.
+When `<Scenario>\Outputs\DTALite` exists, network conversion, demand conversion,
+assignment, and postprocessing all use that folder automatically. If it does
+not exist, they use `<Scenario>` directly. Future-network calibration transfer
+is automatic when network conversion is enabled. The workflow creates or
+reuses a fingerprint-matched `NVTA_Attribute_Transfer` folder beside the
+scenario shapefile; clients do not select or manage dictionary files. Moving
+the shapefile to another folder is a first-time run at that location;
+dictionaries are never reused across shapefile folders.
 
 The client folder may be placed on a local, mapped, or UNC network path. Logs
 from assignment runs are written under the selected output's `logs` folder,
