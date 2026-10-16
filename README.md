@@ -96,7 +96,10 @@ contents, and creates or reuses a matching transfer set under:
 If any network content changes, a new set is created and retained beside the
 older set. Assignment is then bound to the two dictionaries in the matching
 set, so manually supplied stale dictionary paths cannot be used during network
-conversion. `active_transfer.json` identifies the set used by the latest run.
+conversion. The resolved shapefile folder is also part of the set identity.
+Moving an unchanged shapefile to another folder is therefore treated as a
+first-time run in that folder; dictionaries from the prior folder cannot be
+used. `active_transfer.json` identifies the set used by the latest run.
 
 The standalone `transfer` command remains available for maintainer diagnostics
 and creates the same assignment-ready dictionaries and audit evidence.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import shutil
 import time
 from datetime import datetime, timezone
@@ -76,11 +77,15 @@ def _reference_signature(
 
 def _transfer_set_key(
     source_network_fingerprint: str,
+    source_network_folder: Path,
     reference_signature: dict[str, object],
 ) -> str:
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "source_network_fingerprint": source_network_fingerprint,
+        "source_network_folder": os.path.normcase(
+            str(source_network_folder.resolve())
+        ),
         "reference_signature": reference_signature,
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -110,6 +115,18 @@ def _write_active_manifest(path: Path, payload: dict[str, object]) -> None:
             time.sleep(0.1 * (attempt + 1))
 
 
+def _require_folder_local_dictionary(path: Path, transfer_root: Path) -> Path:
+    resolved = path.resolve()
+    try:
+        resolved.relative_to(transfer_root.resolve())
+    except ValueError as exc:
+        raise RuntimeError(
+            "Automatic transfer dictionary resolved outside the selected "
+            f"shapefile folder: {resolved}"
+        ) from exc
+    return resolved
+
+
 def ensure_automatic_future_transfer(
     network_path: Path,
     calibration_dictionary_path: Path,
@@ -122,9 +139,10 @@ def ensure_automatic_future_transfer(
 ) -> dict[str, object]:
     """Create or reuse the dictionary set matching the current source network.
 
-    The cache lives beside the selected network shapefile. A different source
-    fingerprint or packaged reference bundle produces a different immutable set
-    directory, so assignment never receives a dictionary from another network.
+    The cache lives beside the selected network shapefile. The resolved source
+    folder is part of the set identity, so moving an unchanged shapefile to a
+    different folder is a first-time run there. A different source fingerprint,
+    folder, or packaged reference bundle produces a different immutable set.
     """
 
     base_network_path = Path(base_network_path).resolve()
@@ -142,6 +160,7 @@ def ensure_automatic_future_transfer(
             raise FileNotFoundError(f"Automatic transfer reference is missing: {required}")
 
     future_network_file, future = _load_network(network_path)
+    source_network_folder = future_network_file.parent.resolve()
     source_fingerprint = _complete_network_fingerprint(future)
     transfer_fingerprint = _network_fingerprint(future)
     reference_signature = _reference_signature(
@@ -151,9 +170,13 @@ def ensure_automatic_future_transfer(
         boundary_resources=boundary_resources,
         framework_config=framework_config,
     )
-    set_key = _transfer_set_key(source_fingerprint, reference_signature)
+    set_key = _transfer_set_key(
+        source_fingerprint,
+        source_network_folder,
+        reference_signature,
+    )
 
-    transfer_root = future_network_file.parent / TRANSFER_ROOT_NAME
+    transfer_root = source_network_folder / TRANSFER_ROOT_NAME
     set_dir = transfer_root / TRANSFER_SETS_NAME / f"network-{set_key[:20].lower()}"
     set_dir.mkdir(parents=True, exist_ok=True)
     _seed_corridor_reference(set_dir, corridor_reference_dir)
@@ -175,17 +198,24 @@ def ensure_automatic_future_transfer(
         boundary_resources=boundary_resources,
     )
 
-    qvdf_dictionary = set_dir / QVDF_DICTIONARY_NAME
-    speed_t_dictionary = set_dir / SPEED_T_DICTIONARY_NAME
+    qvdf_dictionary = _require_folder_local_dictionary(
+        set_dir / QVDF_DICTIONARY_NAME,
+        transfer_root,
+    )
+    speed_t_dictionary = _require_folder_local_dictionary(
+        set_dir / SPEED_T_DICTIONARY_NAME,
+        transfer_root,
+    )
     if not qvdf_dictionary.is_file() or not speed_t_dictionary.is_file():
         raise RuntimeError("Automatic transfer did not create both assignment dictionaries")
 
     transfer_root.mkdir(parents=True, exist_ok=True)
     active_manifest = transfer_root / ACTIVE_TRANSFER_NAME
     active_payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "checked_utc": datetime.now(timezone.utc).isoformat(),
         "network_file": str(future_network_file),
+        "source_network_folder": str(source_network_folder),
         "source_network_fingerprint": source_fingerprint,
         "transfer_network_fingerprint": transfer_fingerprint,
         "transfer_set": str(set_dir),

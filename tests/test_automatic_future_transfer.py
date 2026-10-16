@@ -85,7 +85,7 @@ class AutomaticFutureTransferTests(unittest.TestCase):
             "expanded_boundary_dictionary_action": "reused" if existed else "created",
         }
 
-    def _ensure(self) -> dict[str, object]:
+    def _ensure(self, network_path: Path | None = None) -> dict[str, object]:
         with (
             patch(
                 "nvta_taplite_workflow.dtalite4cube.automatic_future_transfer._reference_signature",
@@ -97,7 +97,7 @@ class AutomaticFutureTransferTests(unittest.TestCase):
             ),
         ):
             return ensure_automatic_future_transfer(
-                self.network_path,
+                network_path or self.network_path,
                 self.calibration_path,
                 base_network_path=self.base_path,
                 corridor_reference_dir=self.corridor_dir,
@@ -117,6 +117,38 @@ class AutomaticFutureTransferTests(unittest.TestCase):
         transfer_root = self.network_dir / TRANSFER_ROOT_NAME
         self.assertTrue((transfer_root / ACTIVE_TRANSFER_NAME).is_file())
         self.assertEqual(len(list((transfer_root / "sets").iterdir())), 2)
+
+    def test_same_network_in_another_folder_creates_folder_local_set(self) -> None:
+        first = self._ensure()
+
+        second_network_dir = self.root / "moved-future-network"
+        second_network_dir.mkdir()
+        second_network_path = second_network_dir / self.network_path.name
+        shutil.copy2(self.network_path, second_network_path)
+
+        moved = self._ensure(second_network_path)
+
+        self.assertEqual(
+            first["source_network_fingerprint"],
+            moved["source_network_fingerprint"],
+        )
+        self.assertNotEqual(
+            Path(str(first["transfer_set"])).name,
+            Path(str(moved["transfer_set"])).name,
+        )
+        self.assertEqual(moved["qvdf_cache_action"], "created")
+        self.assertEqual(
+            Path(str(moved["source_network_folder"])),
+            second_network_dir.resolve(),
+        )
+        self.assertTrue(
+            Path(str(moved["qvdf_dictionary"])).is_relative_to(
+                second_network_dir / TRANSFER_ROOT_NAME
+            )
+        )
+        self.assertTrue(
+            (second_network_dir / TRANSFER_ROOT_NAME / ACTIVE_TRANSFER_NAME).is_file()
+        )
 
     def test_pipeline_binding_replaces_manual_dictionary_paths(self) -> None:
         generated_qvdf = self.root / "generated-qvdf.npy"
