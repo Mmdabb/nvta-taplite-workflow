@@ -298,8 +298,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help=(
-            "Optional calibrated node-pair QVDF dictionary; defaults to the "
-            "packaged qvdf_parameter_override_lookup resource."
+            "Maintainer compatibility option. Full network conversion always "
+            "uses the automatic fingerprint-matched scenario dictionary."
         ),
     )
     parser.add_argument(
@@ -307,8 +307,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help=(
-            "Optional scenario-local speed-anchor and T0/T2/T3 dictionary "
-            "created by the future-network transfer command."
+            "Maintainer compatibility option. Full network conversion always "
+            "uses the automatic fingerprint-matched scenario dictionary."
         ),
     )
     parser.add_argument(
@@ -487,6 +487,11 @@ def main(argv: list[str] | None = None) -> int:
         )
         config = build_config(args)
         validate_assignment_inputs(config)
+        from nvta_taplite_workflow.dtalite4cube.runner import (
+            prepare_automatic_future_transfer,
+        )
+
+        prepare_automatic_future_transfer(config)
         log_config(config, scenario_root)
         from nvta_taplite_workflow.dtalite4cube.runner import run_assignment_pipeline
 

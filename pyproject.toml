@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nvta-taplite-workflow"
-version = "0.1.0rc3"
+version = "0.1.0rc4"
 description = "NVTA network conversion, TAPLite assignment, QVDF smoothing, and postprocessing workflow."
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
@@ -73,6 +73,7 @@ include = ["nvta_taplite_workflow*"]
   "resources/*/*.csv",
   "resources/*/*.json",
   "resources/*/*.npy",
+  "resources/*/*.gpkg",
   "resources/*/*.md",
   "qvdf_smoother/*.md",
 ]
