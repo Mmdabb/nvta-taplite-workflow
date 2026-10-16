@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.0rc3 - 2026-10-16
 
 - Transfer base-year AM/MD/PM QVDF parameters to arbitrary future-year
   networks with auditable exact-pair, replacement-path, geometry, corridor,
