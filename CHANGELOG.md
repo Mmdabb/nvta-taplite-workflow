@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Carry missing link attributes, including `STREETNAME`, into postprocessed
+  link-performance outputs by directed node pair instead of assignment-internal
+  link IDs, while retaining a compatibility fallback for legacy files.
+
 ## 0.1.0rc5 - 2026-10-16
 
 - Bind automatic transfer sets to the resolved shapefile folder as well as the

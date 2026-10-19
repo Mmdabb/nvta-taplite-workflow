@@ -115,13 +115,101 @@ def _ensure_link_fields(link_df: pd.DataFrame, time_period: str) -> pd.DataFrame
     return link_df
 
 
-def _merge_missing_fields(link_performance_df: pd.DataFrame, link_df: pd.DataFrame, required_fields: list[str]) -> pd.DataFrame:
+def _normalized_node_ids(values: pd.Series) -> pd.Series:
+    """Return stable string keys for integer-like node identifiers."""
+
+    normalized = values.astype("string").str.strip()
+    numeric = pd.to_numeric(values, errors="coerce")
+    integer_like = numeric.notna() & numeric.mod(1).abs().lt(1e-9)
+    normalized.loc[integer_like] = numeric.loc[integer_like].astype("Int64").astype("string")
+    return normalized
+
+
+def _merge_missing_fields(
+    link_performance_df: pd.DataFrame,
+    link_df: pd.DataFrame,
+    required_fields: list[str],
+) -> pd.DataFrame:
     missing_fields = [field for field in required_fields if field not in link_performance_df.columns and field in link_df.columns]
     if not missing_fields:
         return link_performance_df
 
     link_performance_df = link_performance_df.copy()
     link_df = link_df.copy()
+
+    pair_fields = [FROM_NODE_ID_FIELD, TO_NODE_ID_FIELD]
+    pair_fields_available = all(
+        field in link_performance_df.columns and field in link_df.columns
+        for field in pair_fields
+    )
+    pair_fields_complete = pair_fields_available and (
+        link_performance_df[pair_fields].notna().all(axis=1).all()
+        and link_df[pair_fields].notna().all(axis=1).all()
+    )
+
+    if pair_fields_complete:
+        from_key = "__nvta_from_node_key"
+        to_key = "__nvta_to_node_key"
+        match_marker = "__nvta_link_attribute_match"
+
+        link_performance_df[from_key] = _normalized_node_ids(
+            link_performance_df[FROM_NODE_ID_FIELD]
+        )
+        link_performance_df[to_key] = _normalized_node_ids(
+            link_performance_df[TO_NODE_ID_FIELD]
+        )
+        link_df[from_key] = _normalized_node_ids(link_df[FROM_NODE_ID_FIELD])
+        link_df[to_key] = _normalized_node_ids(link_df[TO_NODE_ID_FIELD])
+
+        duplicate_pair_mask = link_df.duplicated(
+            subset=[from_key, to_key], keep=False
+        )
+        if duplicate_pair_mask.any():
+            duplicate_pairs = (
+                link_df.loc[duplicate_pair_mask, [from_key, to_key]]
+                .drop_duplicates()
+                .head(5)
+            )
+            examples = ", ".join(
+                f"{row[from_key]}->{row[to_key]}"
+                for _, row in duplicate_pairs.iterrows()
+            )
+            raise ValueError(
+                "Cannot safely carry link attributes into link performance: "
+                "link.csv contains duplicate directed node pairs"
+                + (f" (examples: {examples})" if examples else "")
+                + "."
+            )
+
+        link_attributes = link_df[[from_key, to_key] + missing_fields].copy()
+        link_attributes[match_marker] = True
+        merged = link_performance_df.merge(
+            link_attributes,
+            on=[from_key, to_key],
+            how="left",
+            validate="many_to_one",
+        )
+        unmatched_count = int(merged[match_marker].isna().sum())
+        if unmatched_count:
+            logger.warning(
+                "%s link-performance rows had no directed node-pair match in link.csv; "
+                "carried link attributes will be blank for those rows.",
+                unmatched_count,
+            )
+        return merged.drop(columns=[from_key, to_key, match_marker])
+
+    if pair_fields_available:
+        logger.warning(
+            "Incomplete directed node pairs prevent node-pair attribute matching; "
+            "falling back to link_id."
+        )
+
+    if LINK_ID_FIELD not in link_performance_df.columns or LINK_ID_FIELD not in link_df.columns:
+        raise KeyError(
+            "Cannot carry link attributes into link performance without complete "
+            "from_node_id/to_node_id fields or link_id in both files."
+        )
+
     link_performance_df[LINK_ID_FIELD] = link_performance_df[LINK_ID_FIELD].astype(str)
     link_df[LINK_ID_FIELD] = link_df[LINK_ID_FIELD].astype(str)
     link_df = link_df.drop_duplicates(subset=LINK_ID_FIELD, keep="first")

@@ -8,6 +8,9 @@ from pathlib import Path
 import pandas as pd
 
 from nvta_taplite_workflow.dtalite4cube.cube2gmns.funclib import district_id_map
+from nvta_taplite_workflow.postprocessing.pipeline.preprocessor import (
+    _merge_missing_fields,
+)
 from nvta_taplite_workflow.postprocessing.runner import (
     preprocess_and_summarize_scenario,
 )
@@ -44,7 +47,11 @@ class PostprocessingOutputTests(unittest.TestCase):
 
         pd.DataFrame(
             {
-                "link_id": [1, 2, 3],
+                # DTALite may write internal link identifiers. Directed node pairs
+                # remain the stable connection to the converted network attributes.
+                "link_id": [9001, 9002, 9003],
+                "from_node_id": [10, 20, 30],
+                "to_node_id": [11, 21, 31],
                 "speed_mph": [30.0, 40.0, 20.0],
                 "volume": [100.0, 200.0, 50.0],
             }
@@ -64,12 +71,12 @@ class PostprocessingOutputTests(unittest.TestCase):
             self.root / "link_performance_combined_processed_regional.csv"
         )
 
-        self.assertEqual(jurisdiction["link_id"].astype(int).tolist(), [1])
-        self.assertEqual(regional["link_id"].astype(int).tolist(), [1, 2])
+        self.assertEqual(jurisdiction["link_id"].astype(int).tolist(), [9001])
+        self.assertEqual(regional["link_id"].astype(int).tolist(), [9001, 9002])
         self.assertEqual(jurisdiction.loc[0, "STREETNAME"], "Main Street")
         self.assertEqual(regional["STREETNAME"].tolist(), ["Main Street", "Regional Avenue"])
         self.assertEqual(
-            regional.loc[regional["link_id"].astype(int) == 1, "geometry"].iloc[0],
+            regional.loc[regional["link_id"].astype(int) == 9001, "geometry"].iloc[0],
             "LINESTRING (0 0, 0.5 1, 1 0)",
         )
 
@@ -86,6 +93,34 @@ class PostprocessingOutputTests(unittest.TestCase):
             regional_stats["time_period"] == "overall"
         ].iloc[0]
         self.assertGreater(regional_overall["person_mile"], jurisdiction_overall["person_mile"])
+
+    def test_link_id_is_used_when_node_pair_fields_are_unavailable(self) -> None:
+        performance = pd.DataFrame({"link_id": [7], "volume": [10.0]})
+        links = pd.DataFrame({"link_id": [7], "STREETNAME": ["Fallback Road"]})
+
+        merged = _merge_missing_fields(performance, links, ["STREETNAME"])
+
+        self.assertEqual(merged.loc[0, "STREETNAME"], "Fallback Road")
+
+    def test_duplicate_directed_node_pairs_are_rejected(self) -> None:
+        performance = pd.DataFrame(
+            {
+                "link_id": [9001],
+                "from_node_id": [10],
+                "to_node_id": [11],
+            }
+        )
+        links = pd.DataFrame(
+            {
+                "link_id": [1, 2],
+                "from_node_id": [10, 10],
+                "to_node_id": [11, 11],
+                "STREETNAME": ["Main Street", "Parallel Road"],
+            }
+        )
+
+        with self.assertRaisesRegex(ValueError, "duplicate directed node pairs"):
+            _merge_missing_fields(performance, links, ["STREETNAME"])
 
     def test_conversion_uses_packaged_jurisdiction_lookup_when_source_omits_it(self) -> None:
         conversion_dir = self.root / "conversion"
