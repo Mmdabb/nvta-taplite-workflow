@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.0rc7 - 2026-10-19
 
 - Carry missing link attributes, including `STREETNAME`, into postprocessed
   link-performance outputs by directed node pair instead of assignment-internal
