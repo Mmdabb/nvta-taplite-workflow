@@ -137,7 +137,7 @@ def main():
     rows = [
         ("Identity", "Both files: from_node_id, to_node_id", "Normalized directed pair. Opposite directions remain distinct; duplicate/unmatched pairs fail."),
         ("Output ID / type", "link.csv: link_id, link_type", "First configured period containing that link. Internal performance IDs stay in the audit."),
-        ("Assigned total V", "link_performance.csv: volume", "Whole-link assignment count for that period. Never divide by lanes."),
+        ("Assigned period results", "link_performance.csv: volume, speed_mph", "Read directly by directed node pair. Export as volume_PERIOD and speed_mph_PERIOD. Use volume as the whole-link period target V."),
         ("Incremental speeds", "spd_mph_HH:MM; legacy spd_HH:MM or spd_kmph_HH:MM", "Use mph; convert km/h with 1.609344. Prefer explicit mph for duplicate representations."),
         ("Free speed vf", "link.csv:vdf_free_speed_mph; performance:free_speed_mph; link.csv:free_speed", "First two are mph. Generic link.csv free_speed is km/h and is divided by 1.609344."),
         ("Lane count", "link.csv:lanes", "Directed lane count for the current period. Assume 1 only when unavailable/invalid; audit this."),
@@ -172,7 +172,7 @@ def main():
         ("In-memory diagnostics", "Parameters, sources, totals, scale and flags. The validation script stores these in validation_diagnostics; production writes only the two CSVs above."),
     ], [240,WIDTH-240]))
     heading("Daily column order")
-    text("<b>1.</b> link_id, from_node_id, to_node_id, link_type, free_speed (mph), capacity (veh/hour/link), lanes.<br/><b>2.</b> All spd_mph_START_END columns in modeled order.<br/><b>3.</b> All approx_volume_START_END columns in the same order. Example: spd_mph_06:00_07:00 and approx_volume_06:00_07:00. Values are vehicles during that bin.")
+    text("<b>1.</b> link_id, from_node_id, to_node_id, link_type, free_speed (mph), capacity (veh/hour/link), lanes.<br/><b>2.</b> volume_am, speed_mph_am, volume_md, speed_mph_md, volume_pm, speed_mph_pm, volume_nt, speed_mph_nt, read directly from period performance files. Missing-period links have blank fields; zeros are preserved.<br/><b>3.</b> All spd_mph_START_END columns in modeled order.<br/><b>4.</b> All approx_volume_START_END columns in the same order. Example: spd_mph_06:00_07:00 and approx_volume_06:00_07:00. Values are vehicles during that bin.")
     text("The seven static fields describe the first configured period containing a link. Each calculation uses the actual attributes for its own period; the audit retains those effective values. A link absent from a period retains blank cells for that period.")
     heading("Cases handled explicitly")
     story.append(table(["Case", "Behavior / audit"], [
@@ -202,7 +202,7 @@ def main():
     heading("What the test confirmed")
     text(f"All {sum(reg['status_counts'].values()):,} regional link/period records used their native link_capacity and network vdf_free_speed_mph. Critical speed was unavailable, so all used 0.75 vf and derived m. There were {reg['invalid_speed_intervals']:,} invalid speed cells, {reg['imputed_speed_intervals']:,} imputed cells and no duration-allocation fallbacks. Diagnostics record {reg['above_capacity_intervals']:,} native intervals above capacity after scaling.")
     text(f"{reg['period_varying_capacity_links']:,} regional links changed capacity between periods, confirming why period-specific attributes must be used. The raw input SHA256 hashes were unchanged: <b>{data['source_hashes_unchanged']}</b>.")
-    text("Regression coverage includes S3 capacity recovery, link capacity, scaling before aggregation, harmonic speeds, shifted hour origins, partial final hours, bins crossing period boundaries, settings fallback, 24:00/overnight ordering, zero/invalid speeds, duplicate pairs and exactly two production exports.")
+    text("All eight assigned-period columns were checked against their source performance CSVs. Regression tests additionally verify source values with deliberately different internal IDs, reversed row order and source averages that differ from hourly harmonic speeds. Existing S3, hourly aggregation and two-export checks also pass.")
 
     new(); title(6, "Example daily profile<br/>and reproducibility")
     row = reg['example_row']; audits = reg['example_audit']
@@ -216,7 +216,8 @@ def main():
     ], [55,115,115,70,WIDTH-355]))
     heading("Reproduce and inspect")
     text("Run scripts/validate_speed_volume.py with --source pointing to existing period outputs and --output to a new test folder. It stages copies, runs normal postprocessing, writes validation_summary.json and ten-row sample CSVs, and hashes source inputs before and after.")
-    text("Outputs for this report: <b>nvta-run/s3-hourly-validation-20261105/</b><br/>Specification: <b>docs/s3-speed-volume.md</b><br/>All requested changes are on <b>codex/s3-speed-volume-export</b>. Publishing is a separate release step after review.")
+    report_folder = escape(data["output"].replace("\\", "/"))
+    text(f"Outputs for this report: <b>{report_folder}/</b><br/>Specification: <b>docs/s3-speed-volume.md</b><br/>All requested changes are on <b>codex/s3-speed-volume-export</b>. Publishing is a separate release step after review.")
     source = "https://github.com/Mmdabb/CBI-TAPLite-Pipeline/blob/1ce571f80e34efa2afdde7ca266740ba057d0523/cbi/src/cbi/fundamental_diagram.py"
     text(f'<b>Reference:</b> <a href="{source}" color="#216D9C">CBI fundamental_diagram.py (pinned source)</a>; s3_speed, inverse_s3_flow and synthetic_s3_context. The 1,800 veh/hour/lane prior is from CBI batch.py. No CBI dependency was added to the installed workflow.')
 

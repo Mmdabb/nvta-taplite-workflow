@@ -204,6 +204,13 @@ When incremental speeds are available, postprocessing also writes
 row per directed link: `link_id`, `from_node_id`, `to_node_id`, `link_type`,
 `free_speed` (mph), `capacity` (vehicles/hour for the whole link), `lanes`, all
 `spd_mph_START_END` columns, then all `approx_volume_START_END` columns.
+Between `lanes` and the hourly columns, assigned period results are included
+in configured order: `volume_am`, `speed_mph_am`, `volume_md`, `speed_mph_md`,
+`volume_pm`, `speed_mph_pm`, `volume_nt`, `speed_mph_nt` for the standard four
+periods. They come directly from each period's `link_performance.csv` columns
+`volume` and `speed_mph`, matched by directed node pair. Missing-period links
+retain blank period fields; zero volume/speed is preserved.
+
 Bins are hourly from the first modeled period's start through the last period's
 end, with a partial final bin when needed. For example, `06:30_07:30` is an hour
 starting at 06:30. Volumes are fractional counts during that bin.

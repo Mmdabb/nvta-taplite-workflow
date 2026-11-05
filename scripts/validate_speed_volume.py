@@ -73,6 +73,11 @@ def main():
         assert (wide.filter(like="approx_volume_").fillna(0) >= 0).all().all()
         period_checks = []
         for period, time_range in zip(periods, ranges):
+            raw = pd.read_csv(args.output / period / "link_performance.csv", usecols=["from_node_id", "to_node_id", "volume", "speed_mph"], low_memory=False)
+            checked = wide.merge(raw, on=["from_node_id", "to_node_id"], how="inner", validate="one_to_one")
+            existing = checked[f"volume_{period}"].notna()
+            np.testing.assert_allclose(checked.loc[existing, f"volume_{period}"], checked.loc[existing, "volume"], equal_nan=True)
+            np.testing.assert_allclose(checked.loc[existing, f"speed_mph_{period}"], checked.loc[existing, "speed_mph"], equal_nan=True)
             cols = [c for c in wide if c.startswith("approx_volume_") and minute_is_in_period(
                 (int(c.split("_")[-2].split(":")[0]) * 60 + int(c.split("_")[-2].split(":")[1])) % 1440, time_range)]
             actual = wide[["from_node_id", "to_node_id"]].copy()
@@ -85,6 +90,7 @@ def main():
                 "exported_total": float(expected.actual.sum()),
                 "max_absolute_error": float((expected.actual - expected.assigned_volume).abs().max()),
                 "native_intervals": int(expected.interval_count.max()),
+                "assigned_period_columns_match_source": True,
             })
         results["scopes"][name] = {
             "unique_links": len(wide), "columns": len(wide.columns),

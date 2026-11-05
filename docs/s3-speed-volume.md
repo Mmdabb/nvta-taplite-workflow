@@ -32,8 +32,15 @@ Column order:
 
 1. `link_id`, `from_node_id`, `to_node_id`, `link_type`, `free_speed` (mph),
    `capacity` (whole-link vehicles/hour), `lanes`.
-2. All `spd_mph_START_END` columns in modeled order.
-3. All `approx_volume_START_END` columns in the same order, in vehicles during
+2. The assigned `volume_{period}`, `speed_mph_{period}` pairs in configured
+   period order, read directly from each period's `link_performance.csv` columns
+   `volume` and `speed_mph` by directed node pair. For AM/MD/PM/NT this adds
+   eight columns immediately after lanes. These are the assigned results,
+   not recomputed hourly or daily summaries; zeros are preserved and missing
+   links for a period have blank fields. The raw assigned volume is also the
+   target used for S3 volume scaling.
+3. All `spd_mph_START_END` columns in modeled order.
+4. All `approx_volume_START_END` columns in the same order, in vehicles during
    that bin, including fractional vehicles. A partial bin is not extrapolated.
 
 The seven static fields use the first configured period containing the link.

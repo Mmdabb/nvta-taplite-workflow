@@ -99,7 +99,8 @@ class SpeedVolumeExportTests(unittest.TestCase):
         output, audit = self.export()
         self.assertEqual(output.link_id.tolist(), [1, 2])
         self.assertEqual(output.columns[:7].tolist(), BASE_COLUMNS)
-        self.assertEqual(output.columns[7:].tolist(), [
+        self.assertEqual(output.columns[7:11].tolist(), ["volume_am", "speed_mph_am", "volume_md", "speed_mph_md"])
+        self.assertEqual(output.columns[11:].tolist(), [
             "spd_mph_06:30_07:30", "spd_mph_07:30_08:30", "spd_mph_08:30_08:45",
             "approx_volume_06:30_07:30", "approx_volume_07:30_08:30", "approx_volume_08:30_08:45",
         ])
@@ -110,6 +111,28 @@ class SpeedVolumeExportTests(unittest.TestCase):
         self.assertAlmostEqual(saved.loc[0, "spd_mph_06:30_07:30"], 2/(1/20 + 1/40))
         self.assertLess(audit.hourly_conservation_error.abs().max(), 1e-10)
         self.assertEqual(list(self.root.glob("*_audit.csv")), [])
+
+    def test_period_columns_come_from_raw_performance_by_directed_pair(self):
+        raw = pd.read_csv(self.root / "md" / "link_performance.csv")
+        raw["link_id"] = [7, 8]  # Different again from both network and combined IDs.
+        raw["volume"] = [321.25, 0]
+        raw["speed_mph"] = [37.5, 0]
+        raw.iloc[::-1].to_csv(self.root / "md" / "link_performance.csv", index=False)
+        output, _ = self.export()
+        self.assertEqual(output.loc[0, "volume_md"], 321.25)
+        self.assertEqual(output.loc[0, "speed_mph_md"], 37.5)
+        self.assertEqual(output.loc[1, "volume_md"], 0)
+        self.assertEqual(output.loc[1, "speed_mph_md"], 0)
+        self.assertEqual(output.loc[0, "speed_mph_am"], 30)
+        self.assertAlmostEqual(output.loc[0, ["approx_volume_07:30_08:30", "approx_volume_08:30_08:45"]].sum(), 321.25)
+
+    def test_missing_link_in_one_period_has_blank_period_fields(self):
+        data = self.combined.drop(index=0)
+        output, _ = self.export(data)
+        link = output[output.from_node_id == "10"].iloc[0]
+        self.assertTrue(pd.isna(link.volume_am))
+        self.assertTrue(pd.isna(link.speed_mph_am))
+        self.assertEqual(link.volume_md, 240)
 
     def test_volume_approximation_precedes_hourly_aggregation(self):
         output, audit = self.export()

@@ -7,6 +7,9 @@
   conservation at native increments before summing counts and computing
   duration-weighted harmonic speeds. Use actual settings bounds and a
   kernel-consistent 0.75 free-speed ratio for missing critical speed.
+- Include each period's assigned `volume_{period}` and `speed_mph_{period}`
+  directly after lanes in both exports, read from period performance files
+  using directed node pairs.
 
 ## 0.1.0rc7 - 2026-10-19
 

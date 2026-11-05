@@ -290,8 +290,20 @@ def write_speed_volume(
         )
         if (frame["_merge"] != "both").any():
             raise ValueError(f"Unmatched directed node pairs in {period}; check link.csv against assignment outputs.")
+        assignment = pd.read_csv(
+            resolve_period_file(network_dir, period, "link_performance.csv"),
+            usecols=[*KEYS, "volume", "speed_mph"], low_memory=False,
+        ).rename(columns={"volume": "assigned_period_volume", "speed_mph": "assigned_period_speed_mph"})
+        for key in KEYS:
+            assignment[key] = _normalized_node_ids(assignment[key])
+        if assignment[KEYS].isna().any().any() or assignment.duplicated(KEYS).any():
+            raise ValueError(f"Invalid or duplicate directed pairs in {period}/link_performance.csv.")
+        assignment["_assignment_match"] = True
+        frame = frame.merge(assignment, on=KEYS, how="left", validate="one_to_one")
+        if frame["_assignment_match"].isna().any():
+            raise ValueError(f"Unmatched directed pairs in {period}/link_performance.csv.")
         params = s3_parameters(frame, speeds)
-        target = pd.to_numeric(frame["volume"], errors="coerce").to_numpy(dtype=float)
+        target = pd.to_numeric(frame["assigned_period_volume"], errors="coerce").to_numpy(dtype=float)
         if (~np.isfinite(target) | (target < 0)).any():
             raise ValueError(f"Invalid assigned volume in {period}.")
         raw = inverse_s3_link_flow(speeds, params) * interval_hours[None, :]
@@ -311,6 +323,8 @@ def write_speed_volume(
             "link_type": frame["network_link_type"].to_numpy(),
             "free_speed": params["free_speed"].to_numpy(),
             "capacity": params["capacity"].to_numpy(), "lanes": params["lanes"].to_numpy(),
+            f"volume_{period}": frame["assigned_period_volume"].to_numpy(),
+            f"speed_mph_{period}": frame["assigned_period_speed_mph"].to_numpy(),
         })
         hour_volume, duration, travel, invalid = _hourly_contributions(
             speeds, estimated, interval_hours, period_starts[period], hourly_bins,
@@ -348,7 +362,8 @@ def write_speed_volume(
     # Sum already-scaled contributions, including bins crossing period boundaries.
     indexed = [part.set_index(KEYS) for part in wide_parts]
     grouped = pd.concat(indexed).groupby(level=KEYS, sort=False)
-    output = grouped.first()[[c for c in BASE_COLUMNS if c not in KEYS]]
+    period_columns = [column for period in ranges for column in (f"volume_{period}", f"speed_mph_{period}")]
+    output = grouped.first().reindex(columns=[c for c in BASE_COLUMNS if c not in KEYS] + period_columns)
     sums = grouped.sum(min_count=1, numeric_only=True)
     speeds_out = {}
     for label in labels:
@@ -358,7 +373,7 @@ def write_speed_volume(
         harmonic[(duration == 0) | (sums["__invalid_" + label] > 0)] = np.nan
         speeds_out["spd_mph_" + label] = harmonic
     output = pd.concat([output, pd.DataFrame(speeds_out), sums[volume_names]], axis=1).reset_index()
-    output = output[BASE_COLUMNS + list(speeds_out) + volume_names]
+    output = output[BASE_COLUMNS + period_columns + list(speeds_out) + volume_names]
     audit = pd.concat(audits, ignore_index=True)
     if audit.imputed_speed_intervals.sum():
         logger.warning(
