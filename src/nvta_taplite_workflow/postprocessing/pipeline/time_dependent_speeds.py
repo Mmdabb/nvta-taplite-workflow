@@ -26,16 +26,18 @@ def parse_period_range_minutes(time_range: str) -> tuple[int, int]:
             f"Invalid period range {time_range!r}; expected HHMM_HHMM."
         ) from exc
 
-    def parse_clock(value: str) -> int:
+    def parse_clock(value: str, *, allow_end_of_day: bool = False) -> int:
         normalized = value.strip().replace(":", "")
         if len(normalized) not in {3, 4} or not normalized.isdigit():
             raise ValueError(
                 f"Invalid clock value {value!r} in period range {time_range!r}."
             )
         normalized = normalized.zfill(4)
+        if allow_end_of_day and normalized == "2400":
+            return 1440
         return _clock_minutes(int(normalized[:2]), int(normalized[2:]))
 
-    return parse_clock(raw_start), parse_clock(raw_end)
+    return parse_clock(raw_start), parse_clock(raw_end, allow_end_of_day=True)
 
 
 def speed_column_minutes(column_name: str) -> int | None:

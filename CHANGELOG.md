@@ -2,9 +2,11 @@
 
 ## Unreleased
 
-- Add jurisdiction and regional single-row-per-link incremental speed and
-  approximate-volume CSVs, using inverse S3 flow and independent assignment
-  volume conservation for each period, with parameter and scaling audits.
+- Add jurisdiction and regional single-row-per-link hourly speed and
+  approximate-volume CSVs. Apply inverse S3 and independent period-volume
+  conservation at native increments before summing counts and computing
+  duration-weighted harmonic speeds. Use actual settings bounds and a
+  kernel-consistent 0.75 free-speed ratio for missing critical speed.
 
 ## 0.1.0rc7 - 2026-10-19
 

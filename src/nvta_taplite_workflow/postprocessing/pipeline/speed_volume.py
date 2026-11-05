@@ -17,7 +17,6 @@ from nvta_taplite_workflow.dtalite4cube.unit_contract import KPH_PER_MPH
 from .preprocessor import _normalized_node_ids, resolve_period_file
 from .time_dependent_speeds import (
     parse_period_range_minutes,
-    period_range_mapping,
     speed_column_minutes,
     time_dependent_speed_columns,
 )
@@ -70,8 +69,8 @@ def s3_parameters(frame: pd.DataFrame, speeds: np.ndarray) -> pd.DataFrame:
     vc[derived_vc] = vf[derived_vc] / 2 ** (2 / m[derived_vc])
     vc_source[derived_vc] = "derived_from_vf_and_m"
     assumed_vc = ~(np.isfinite(vc) & (vc > 0) & (vc < vf))
-    vc[assumed_vc] = 0.70 * vf[assumed_vc]
-    vc_source[assumed_vc] = "assumed_0.70_vf"
+    vc[assumed_vc] = 0.75 * vf[assumed_vc]
+    vc_source[assumed_vc] = "assumed_0.75_vf"
     # vc is authoritative when supplied; this also repairs inconsistent supplied m.
     derived_m = 2 * np.log(2) / np.log(vf / vc)
     repair_m = ~np.isfinite(m) | ~np.isclose(m, derived_m, rtol=1e-6, atol=1e-8)
@@ -116,7 +115,7 @@ def inverse_s3_link_flow(speeds: np.ndarray, parameters: pd.DataFrame) -> np.nda
     return np.where(valid, flow, 0)
 
 
-def _interval_columns(columns, time_range: str) -> tuple[list[str], np.ndarray, list[int]]:
+def _interval_columns(columns, time_range: str) -> tuple[list[str | None], np.ndarray, list[int]]:
     start, end = parse_period_range_minutes(time_range)
     duration = (end - start) % 1440 or 1440
     # Canonicalize speeds to mph, selecting one representation for each timestamp.
@@ -142,34 +141,116 @@ def _interval_columns(columns, time_range: str) -> tuple[list[str], np.ndarray, 
     return [by_minute[t][1] if t in by_minute else None for t in minutes], hours, minutes
 
 
+def resolve_export_period_ranges(
+    network_dir: str | Path,
+    time_periods: list[str],
+    period_ranges: list[str | None] | None = None,
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Use actual kernel settings when present; configured bounds are fallback."""
+    if period_ranges is not None and len(period_ranges) != len(time_periods):
+        raise ValueError("time_periods and period_ranges must have the same length.")
+    ranges, sources = {}, {}
+    for index, raw_period in enumerate(time_periods):
+        period = raw_period.lower()
+        if period in ranges:
+            raise ValueError("Duplicate configured time periods.")
+        configured = period_ranges[index] if period_ranges is not None else None
+        try:
+            path = resolve_period_file(network_dir, period, "settings.csv")
+        except FileNotFoundError:
+            path = None
+        if path is not None:
+            settings = pd.read_csv(path)
+            if len(settings) != 1:
+                raise ValueError(f"Expected one settings row in {path}.")
+            try:
+                start, end = [float(settings.loc[0, key]) * 60 for key in (
+                    "demand_period_starting_hours", "demand_period_ending_hours"
+                )]
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(f"Invalid demand period bounds in {path}.") from exc
+            if not (np.isfinite(start) and np.isfinite(end) and 0 <= start < 1440
+                    and 0 <= end <= 2880 and np.isclose(start, round(start))
+                    and np.isclose(end, round(end))):
+                raise ValueError(f"Invalid demand period hours in {path}.")
+            start, end = round(start), round(end)
+            if end > start + 1440:
+                raise ValueError(f"Period longer than 24 hours in {path}.")
+            end = 1440 if end == 1440 else end % 1440
+            effective = f"{start // 60:02d}{start % 60:02d}_{end // 60:02d}{end % 60:02d}"
+            ranges[period], sources[period] = effective, "settings.csv"
+            if configured and parse_period_range_minutes(configured) != (start, end):
+                logger.warning("%s export uses actual settings range %s instead of configured %s.", period, effective, configured)
+        elif configured:
+            parse_period_range_minutes(configured)
+            ranges[period], sources[period] = configured, "configured"
+        else:
+            raise ValueError(f"Missing period range for {period}: supply a range or {period}/settings.csv.")
+    return ranges, sources
+
+
+def _hourly_timeline(ranges: dict[str, str]) -> tuple[dict[str, int], list[tuple[int, int]], list[str]]:
+    starts = {}
+    previous_end = None
+    owned_minutes = set()
+    for period, time_range in ranges.items():
+        start, end = parse_period_range_minutes(time_range)
+        duration = (end - start) % 1440 or 1440
+        owned = {(start + t) % 1440 for t in range(duration)}
+        if owned_minutes.intersection(owned):
+            raise ValueError("Configured periods overlap in the speed/volume export.")
+        owned_minutes.update(owned)
+        while previous_end is not None and start < previous_end:
+            start += 1440
+        starts[period] = start
+        previous_end = start + duration
+    beginning = next(iter(starts.values()))
+    if previous_end is None or previous_end - beginning > 1440:
+        raise ValueError("Configured periods must form an ordered span of at most 24 hours.")
+    bins = [(t, min(t + 60, previous_end)) for t in range(beginning, previous_end, 60)]
+    labels = [f"{a // 60:02d}:{a % 60:02d}_{b // 60:02d}:{b % 60:02d}" for a, b in bins]
+    return starts, bins, labels
+
+
+def _hourly_contributions(speeds, estimated, interval_hours, absolute_start, bins):
+    interval_start = absolute_start + np.r_[0, np.cumsum(interval_hours[:-1]) * 60]
+    interval_end = interval_start + interval_hours * 60
+    overlap = np.maximum(0, np.minimum(interval_end[:, None], np.array(bins)[:, 1])
+                         - np.maximum(interval_start[:, None], np.array(bins)[:, 0]))
+    fractions = overlap / (interval_hours[:, None] * 60)
+    volume = estimated @ fractions
+    # Harmonic speed = total duration / sum(duration / speed).
+    inverse = np.divide(1, speeds, out=np.zeros_like(speeds), where=np.isfinite(speeds) & (speeds > 0))
+    travel = inverse @ overlap
+    stopped = (speeds == 0).astype(float) @ overlap > 0
+    travel[stopped] = np.inf
+    invalid = (~np.isfinite(speeds) | (speeds < 0)).astype(float) @ overlap
+    durations = np.broadcast_to(overlap.sum(axis=0), volume.shape).copy()
+    empty = durations == 0
+    volume[empty] = np.nan
+    return volume, durations, travel, invalid
+
+
 def write_speed_volume(
     combined: pd.DataFrame,
     network_dir: str | Path,
     time_periods: list[str],
-    period_ranges: list[str],
+    period_ranges: list[str | None] | None = None,
     *,
     output_filename: str,
 ) -> tuple[pd.DataFrame, pd.DataFrame] | None:
-    """Write wide CSV and one audit row per link/period beside combined output.
+    """Write one hourly CSV; return period diagnostics without extra output files.
 
     Generic output free_speed is mph; capacity is whole-link vehicles/hour.
     Static attributes come from the first configured period containing the link.
     Effective period attributes and all assumptions are retained in the audit.
     """
-    ranges = period_range_mapping(time_periods, period_ranges)
-    if len(ranges) != len(time_periods):
-        raise ValueError("Duplicate configured time periods.")
-    owned_minutes = set()
-    for time_range in ranges.values():
-        start, end = parse_period_range_minutes(time_range)
-        minutes = {(start + t) % 1440 for t in range((end - start) % 1440 or 1440)}
-        if owned_minutes.intersection(minutes):
-            raise ValueError("Configured periods overlap in the speed/volume export.")
-        owned_minutes.update(minutes)
+    ranges, range_sources = resolve_export_period_ranges(network_dir, time_periods, period_ranges)
+    period_starts, hourly_bins, labels = _hourly_timeline(ranges)
     if not time_dependent_speed_columns(combined.columns):
         logger.warning("No incremental speeds; skipping %s for legacy performance files.", output_filename)
         # Prevent a previous successful export from looking current after a legacy run.
-        for path in [Path(network_dir) / output_filename, Path(network_dir) / output_filename.replace(".csv", "_audit.csv")]:
+        for path in [Path(network_dir) / output_filename]:
             path.unlink(missing_ok=True)
         return None
 
@@ -231,18 +312,29 @@ def write_speed_volume(
             "free_speed": params["free_speed"].to_numpy(),
             "capacity": params["capacity"].to_numpy(), "lanes": params["lanes"].to_numpy(),
         })
-        speed_names = [f"spd_mph_{t // 60:02d}:{t % 60:02d}" for t in minutes]
-        volume_names = [f"approx_volume_{t // 60:02d}:{t % 60:02d}" for t in minutes]
-        part = pd.concat([part, pd.DataFrame(speeds, columns=speed_names), pd.DataFrame(estimated, columns=volume_names)], axis=1)
+        hour_volume, duration, travel, invalid = _hourly_contributions(
+            speeds, estimated, interval_hours, period_starts[period], hourly_bins,
+        )
+        volume_names = ["approx_volume_" + label for label in labels]
+        part = pd.concat([part,
+            pd.DataFrame(hour_volume, columns=volume_names),
+            pd.DataFrame(duration, columns=["__duration_" + label for label in labels]),
+            pd.DataFrame(travel, columns=["__travel_" + label for label in labels]),
+            pd.DataFrame(invalid, columns=["__invalid_" + label for label in labels]),
+        ], axis=1)
         wide_parts.append(part)
         audit = pd.concat([part[BASE_COLUMNS], params.drop(columns=["free_speed", "capacity", "lanes"])], axis=1)
         audit["time_period"] = period
+        audit["period_range"] = time_range
+        audit["period_range_source"] = range_sources[period]
         audit["assignment_link_id"] = frame["link_id"].to_numpy()
         audit["assigned_volume"] = target
         audit["raw_s3_volume"] = raw_total
         audit["scale_factor"] = scale
         audit["estimated_volume_sum"] = estimated.sum(axis=1)
         audit["conservation_error"] = estimated.sum(axis=1) - target
+        audit["hourly_volume_sum"] = np.nansum(hour_volume, axis=1)
+        audit["hourly_conservation_error"] = np.nansum(hour_volume, axis=1) - target
         audit["invalid_speed_intervals"] = (~np.isfinite(speeds) | (speeds < 0)).sum(axis=1)
         audit["imputed_speed_intervals"] = int(missing_columns.sum())
         audit["imputation_source"] = "speed_mph" if missing_columns.any() else "none"
@@ -253,12 +345,20 @@ def write_speed_volume(
         audit["above_capacity_intervals"] = (estimated / interval_hours > params["capacity"].to_numpy()[:, None] + 1e-6).sum(axis=1)
         audits.append(audit)
 
-    # First-period attributes, with speed/volume cells combined across periods.
+    # Sum already-scaled contributions, including bins crossing period boundaries.
     indexed = [part.set_index(KEYS) for part in wide_parts]
-    output = pd.concat(indexed).groupby(level=KEYS, sort=False).first().reset_index()
-    speed_names = sorted([c for c in output if c.startswith("spd_mph_")])
-    volume_names = sorted([c for c in output if c.startswith("approx_volume_")])
-    output = output[BASE_COLUMNS + speed_names + volume_names]
+    grouped = pd.concat(indexed).groupby(level=KEYS, sort=False)
+    output = grouped.first()[[c for c in BASE_COLUMNS if c not in KEYS]]
+    sums = grouped.sum(min_count=1, numeric_only=True)
+    speeds_out = {}
+    for label in labels:
+        duration = sums["__duration_" + label]
+        travel = sums["__travel_" + label]
+        harmonic = duration / travel
+        harmonic[(duration == 0) | (sums["__invalid_" + label] > 0)] = np.nan
+        speeds_out["spd_mph_" + label] = harmonic
+    output = pd.concat([output, pd.DataFrame(speeds_out), sums[volume_names]], axis=1).reset_index()
+    output = output[BASE_COLUMNS + list(speeds_out) + volume_names]
     audit = pd.concat(audits, ignore_index=True)
     if audit.imputed_speed_intervals.sum():
         logger.warning(
@@ -268,6 +368,5 @@ def write_speed_volume(
         )
     out_path = Path(network_dir) / output_filename
     output.to_csv(out_path, index=False)
-    audit.to_csv(out_path.with_name(out_path.stem + "_audit.csv"), index=False)
     logger.info("Wrote %s: %s links; %s link/period audits; %s duration fallbacks.", out_path, len(output), len(audit), (audit.status == "uniform_duration_fallback").sum())
     return output, audit

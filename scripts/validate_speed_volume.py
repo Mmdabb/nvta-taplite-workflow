@@ -9,6 +9,7 @@ import shutil
 import sys
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -16,6 +17,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from nvta_taplite_workflow.postprocessing.runner import preprocess_and_summarize_scenario
 from nvta_taplite_workflow.postprocessing.pipeline.time_dependent_speeds import minute_is_in_period
+from nvta_taplite_workflow.postprocessing.pipeline.speed_volume import resolve_export_period_ranges, write_speed_volume
 
 
 def digest(path):
@@ -39,25 +41,40 @@ def main():
     start = time.perf_counter()
     for period in periods:
         (args.output / period).mkdir(parents=True)
-        for filename in ["link.csv", "link_performance.csv"]:
+        for filename in ["link.csv", "link_performance.csv", "settings.csv"]:
             source = args.source / period / filename
+            if filename == "settings.csv" and not source.exists():
+                continue
             before[f"{period}/{filename}"] = digest(source)
             shutil.copy2(source, args.output / period / filename)
-    preprocess_and_summarize_scenario(
-        scenario_dir=args.output, time_periods=periods, period_range_list=ranges,
-        time_duration_dict={"am": 3, "md": 6, "pm": 4, "nt": 11},
-    )
+    diagnostics = {}
+    def record_export(*positional, **keyword):
+        result = write_speed_volume(*positional, **keyword)
+        diagnostics[Path(keyword["output_filename"]).stem] = result[1]
+        return result
+    with patch("nvta_taplite_workflow.postprocessing.runner.write_speed_volume", side_effect=record_export):
+        preprocess_and_summarize_scenario(
+            scenario_dir=args.output, time_periods=periods, period_range_list=ranges,
+            time_duration_dict={"am": 3, "md": 6, "pm": 4, "nt": 11},
+        )
+    resolved, _ = resolve_export_period_ranges(args.output, periods, ranges)
+    ranges = list(resolved.values())
+    debug_dir = args.output / "validation_diagnostics"
+    debug_dir.mkdir()
     results = {"source": str(args.source), "output": str(args.output), "scopes": {}}
     for name in ["link_speed_volume", "link_speed_volume_regional"]:
         wide = pd.read_csv(args.output / f"{name}.csv", low_memory=False)
-        audit = pd.read_csv(args.output / f"{name}_audit.csv", low_memory=False)
+        audit = diagnostics[name].copy()
+        for key in ["from_node_id", "to_node_id"]:
+            audit[key] = pd.to_numeric(audit[key])
+        audit.to_csv(debug_dir / f"{name}_audit.csv", index=False)
         assert not wide.duplicated(["from_node_id", "to_node_id"]).any()
         assert np.isfinite(wide.filter(like="approx_volume_").fillna(0)).all().all()
         assert (wide.filter(like="approx_volume_").fillna(0) >= 0).all().all()
         period_checks = []
         for period, time_range in zip(periods, ranges):
             cols = [c for c in wide if c.startswith("approx_volume_") and minute_is_in_period(
-                int(c[-5:-3]) * 60 + int(c[-2:]), time_range)]
+                (int(c.split("_")[-2].split(":")[0]) * 60 + int(c.split("_")[-2].split(":")[1])) % 1440, time_range)]
             actual = wide[["from_node_id", "to_node_id"]].copy()
             actual["actual"] = wide[cols].sum(axis=1)
             expected = audit[audit.time_period == period].merge(actual, on=["from_node_id", "to_node_id"], validate="one_to_one")
@@ -67,6 +84,7 @@ def main():
                 "assigned_total": float(expected.assigned_volume.sum()),
                 "exported_total": float(expected.actual.sum()),
                 "max_absolute_error": float((expected.actual - expected.assigned_volume).abs().max()),
+                "native_intervals": int(expected.interval_count.max()),
             })
         results["scopes"][name] = {
             "unique_links": len(wide), "columns": len(wide.columns),
@@ -88,6 +106,7 @@ def main():
         results["scopes"][name]["example_row"] = example.to_dict()
         results["scopes"][name]["example_audit"] = audit[(audit.from_node_id == representative.from_node_id) & (audit.to_node_id == representative.to_node_id)].to_dict(orient="records")
         wide.head(10).to_csv(args.output / f"{name}_sample.csv", index=False)
+    results["period_ranges"] = resolved
     results["source_hashes_unchanged"] = all(digest(args.source / key) == value for key, value in before.items())
     results["source_sha256"] = before
     results["elapsed_seconds"] = time.perf_counter() - start

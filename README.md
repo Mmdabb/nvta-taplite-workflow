@@ -203,14 +203,19 @@ When incremental speeds are available, postprocessing also writes
 `link_speed_volume_regional.csv` (the same regional scope). Each contains one
 row per directed link: `link_id`, `from_node_id`, `to_node_id`, `link_type`,
 `free_speed` (mph), `capacity` (vehicles/hour for the whole link), `lanes`, all
-`spd_mph_HH:MM` columns, then all `approx_volume_HH:MM` columns. These volumes
-are fractional vehicle counts per interval, not hourly flows.
+`spd_mph_START_END` columns, then all `approx_volume_START_END` columns.
+Bins are hourly from the first modeled period's start through the last period's
+end, with a partial final bin when needed. For example, `06:30_07:30` is an hour
+starting at 06:30. Volumes are fractional counts during that bin.
 
 Inverse S3 flow determines the interval pattern. One multiplier per link per
 assignment period makes the interval counts sum to that period's assigned
-`volume`. Matching uses the directed node pair; exported IDs come from
-`link.csv`. Each export has an `_audit.csv` companion with effective period
-parameters, input provenance, scale factors, fallbacks, and conservation errors.
+`volume`, before any hourly aggregation. Hourly volumes are sums; speeds are
+duration-weighted harmonic means. Missing critical speed uses `0.75 * vf`.
+Actual period bounds are read from `settings.csv` when present, with configured
+ranges as fallback. Matching uses the directed node pair; exported IDs come from
+`link.csv`. Production writes exactly two new CSVs. Detailed diagnostics are
+returned internally and saved by the separate validation script.
 The seven static columns use the first configured period containing the link;
 period-specific lanes/capacity/free speed remain in the audit and are used for
 that period's calculation. See [the S3 calculation specification](docs/s3-speed-volume.md)
