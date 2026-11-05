@@ -13,3 +13,4 @@ dist/
 logs/
 nvta-run/
 qvdf_batch_report.json
+/output/pdf/NVTA_S3_Speed_Volume_Implementation_Report.pdf
