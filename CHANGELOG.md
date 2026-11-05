@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.0rc8 - 2026-11-05
 
 - Add jurisdiction and regional single-row-per-link hourly speed and
   approximate-volume CSVs. Apply inverse S3 and independent period-volume
