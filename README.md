@@ -198,6 +198,24 @@ statistics files under the DTALite output folder:
 Both postprocessed link-performance files include the source network's
 `STREETNAME` and full WKT `geometry` fields.
 
+When incremental speeds are available, postprocessing also writes
+`link_speed_volume.csv` (the same jurisdiction scope) and
+`link_speed_volume_regional.csv` (the same regional scope). Each contains one
+row per directed link: `link_id`, `from_node_id`, `to_node_id`, `link_type`,
+`free_speed` (mph), `capacity` (vehicles/hour for the whole link), `lanes`, all
+`spd_mph_HH:MM` columns, then all `approx_volume_HH:MM` columns. These volumes
+are fractional vehicle counts per interval, not hourly flows.
+
+Inverse S3 flow determines the interval pattern. One multiplier per link per
+assignment period makes the interval counts sum to that period's assigned
+`volume`. Matching uses the directed node pair; exported IDs come from
+`link.csv`. Each export has an `_audit.csv` companion with effective period
+parameters, input provenance, scale factors, fallbacks, and conservation errors.
+The seven static columns use the first configured period containing the link;
+period-specific lanes/capacity/free speed remain in the audit and are used for
+that period's calculation. See [the S3 calculation specification](docs/s3-speed-volume.md)
+for input priorities, equations, units, and exceptional cases.
+
 The files in `client` are permanent thin launchers. They contain no workflow
 logic and do not need to change when conversion, assignment, smoothing, or
 postprocessing internals change.

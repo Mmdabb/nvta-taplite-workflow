@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add jurisdiction and regional single-row-per-link incremental speed and
+  approximate-volume CSVs, using inverse S3 flow and independent assignment
+  volume conservation for each period, with parameter and scaling audits.
+
 ## 0.1.0rc7 - 2026-10-19
 
 - Carry missing link attributes, including `STREETNAME`, into postprocessed

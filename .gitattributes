@@ -4,3 +4,4 @@
 *.npy binary
 *.whl binary
 *.gz binary
+*.pdf binary

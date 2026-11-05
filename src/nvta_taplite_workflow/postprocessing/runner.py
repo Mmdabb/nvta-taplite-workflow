@@ -23,6 +23,7 @@ from .pipeline.linkperformance_fieldconfig import (
     REGIONAL_LINK_PERFORMANCE_FILENAME,
     REGIONAL_STATISTICS_FILENAME,
 )
+from .pipeline.speed_volume import write_speed_volume
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +174,15 @@ def preprocess_and_summarize_scenario(
         time_duration_dict,
         output_filename=REGIONAL_STATISTICS_FILENAME,
     )
+
+    for combined, filename in [
+        (jurisdiction_link_performance, "link_speed_volume.csv"),
+        (regional_link_performance, "link_speed_volume_regional.csv"),
+    ]:
+        write_speed_volume(
+            combined, network_path, time_periods, period_range_list,
+            output_filename=filename,
+        )
 
     return jurisdiction_link_performance
 

@@ -184,6 +184,9 @@ class ScenarioPathResolutionTests(unittest.TestCase):
             patch(
                 "nvta_taplite_workflow.postprocessing.runner.performance_summary"
             ) as summarize,
+            patch(
+                "nvta_taplite_workflow.postprocessing.runner.write_speed_volume"
+            ) as speed_volume,
         ):
             preprocess_and_summarize_scenario(
                 scenario_dir=self.scenario,
@@ -199,6 +202,10 @@ class ScenarioPathResolutionTests(unittest.TestCase):
         self.assertEqual(summarize.call_count, 2)
         self.assertTrue(
             all(call.args[1] == str(self.dtalite.resolve()) for call in summarize.call_args_list)
+        )
+        self.assertEqual(speed_volume.call_count, 2)
+        self.assertTrue(
+            all(call.args[1] == self.dtalite.resolve() for call in speed_volume.call_args_list)
         )
 
 
