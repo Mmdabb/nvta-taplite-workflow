@@ -23,6 +23,7 @@ from .pipeline.linkperformance_fieldconfig import (
     REGIONAL_LINK_PERFORMANCE_FILENAME,
     REGIONAL_STATISTICS_FILENAME,
 )
+from .pipeline.speed_volume import resolve_export_period_ranges, write_speed_volume
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ class PostprocessingConfig:
     time_periods: list[str] = field(
         default_factory=lambda: ["am", "md", "pm", "nt"]
     )
-    time_period_duration_list: list[str] = field(
+    time_period_duration_list: list[str] | None = field(
         default_factory=lambda: ["0600_0900", "0900_1500", "1500_1900", "1900_0600"]
     )
 
@@ -56,7 +57,7 @@ class PostprocessingConfig:
         if not self.scenario_names:
             raise ValueError("scenario_names cannot be empty.")
 
-        if len(self.time_periods) != len(self.time_period_duration_list):
+        if self.time_period_duration_list is not None and len(self.time_periods) != len(self.time_period_duration_list):
             raise ValueError(
                 "time_periods and time_period_duration_list must have the same length."
             )
@@ -138,10 +139,19 @@ def preprocess_and_summarize_scenario(
     *,
     scenario_dir: Path,
     time_periods: list[str],
-    period_range_list: list[str],
+    period_range_list: list[str | None] | None,
     time_duration_dict: dict,
 ):
     network_path = prepare_dtalite_outputs(scenario_dir, time_periods)
+    resolved_ranges, _ = resolve_export_period_ranges(network_path, time_periods, period_range_list)
+    period_range_list = list(resolved_ranges.values())
+    # Summaries and exports must describe the same actual assignment periods.
+    from .pipeline.time_dependent_speeds import parse_period_range_minutes
+    time_duration_dict = {
+        period: ((end - start) % 1440 or 1440) / 60
+        for period, time_range in resolved_ranges.items()
+        for start, end in [parse_period_range_minutes(time_range)]
+    }
     logger.info("Generating performance summary for: %s", network_path)
 
     jurisdiction_link_performance = link_performance_preprocess(
@@ -173,6 +183,15 @@ def preprocess_and_summarize_scenario(
         time_duration_dict,
         output_filename=REGIONAL_STATISTICS_FILENAME,
     )
+
+    for combined, filename in [
+        (jurisdiction_link_performance, "link_speed_volume.csv"),
+        (regional_link_performance, "link_speed_volume_regional.csv"),
+    ]:
+        write_speed_volume(
+            combined, network_path, time_periods, period_range_list,
+            output_filename=filename,
+        )
 
     return jurisdiction_link_performance
 
@@ -233,7 +252,7 @@ def run_postprocessing(config: PostprocessingConfig) -> None:
     time_duration_dict = time_period_duration(
         config.time_periods,
         config.time_period_duration_list,
-    )
+    ) if config.time_period_duration_list is not None else {}
 
     if config.link_performance_comparison:
         run_comparison(config, time_duration_dict)

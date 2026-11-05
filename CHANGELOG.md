@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0rc8 - 2026-11-05
+
+- Add jurisdiction and regional single-row-per-link hourly speed and
+  approximate-volume CSVs. Apply inverse S3 and independent period-volume
+  conservation at native increments before summing counts and computing
+  duration-weighted harmonic speeds. Use actual settings bounds and a
+  kernel-consistent 0.75 free-speed ratio for missing critical speed.
+- Include each period's assigned `volume_{period}` and `speed_mph_{period}`
+  directly after lanes in both exports, read from period performance files
+  using directed node pairs.
+
 ## 0.1.0rc7 - 2026-10-19
 
 - Carry missing link attributes, including `STREETNAME`, into postprocessed
