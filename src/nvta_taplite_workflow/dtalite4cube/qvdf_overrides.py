@@ -26,7 +26,6 @@ PARAMETER_COLUMNS = {
     "beta": "vdf_beta",
 }
 PERIOD_SEQUENCE = {"am": 1, "md": 2, "pm": 3}
-CUTOFF_SPEED_KEYS = tuple(f"QVDF_cutoff_speed{sequence}" for sequence in PERIOD_SEQUENCE.values())
 
 
 def _replace_with_windows_retry(source: Path, target: Path) -> None:
@@ -89,7 +88,7 @@ def apply_overrides(
     expected_profile_mode: int = 2,
     periods: Iterable[str] | None = None,
 ) -> dict[str, object]:
-    """Replace mapped QVDF parameters and optional calibrated cutoff speeds.
+    """Replace eight mapped QVDF fields for supported directed node pairs.
 
     The calibrated dictionary currently covers AM, MD, and PM. Other requested
     periods, including NT, retain the normal converter mapping and are recorded
@@ -137,10 +136,6 @@ def apply_overrides(
                 + ", ".join(sorted(absent))
             )
 
-        cutoff_key = CUTOFF_SPEED_KEYS[sequence - 1]
-        optional_cutoff = cutoff_key in lookup.columns
-        if optional_cutoff:
-            source_columns[cutoff_key] = "cutoff_speed__override"
         selected = lookup[["from_node_id", "to_node_id", *source_columns]].rename(
             columns=source_columns
         )
@@ -181,22 +176,7 @@ def apply_overrides(
             changed_cells += int((~np.isclose(original, override, equal_nan=True)).sum())
             merged[target] = override
 
-        output_columns = list(frame.columns)
-        cutoff_updates = 0
-        if optional_cutoff:
-            raw = merged["cutoff_speed__override"]
-            cutoff = pd.to_numeric(raw, errors="coerce")
-            invalid = raw.notna() & (~np.isfinite(cutoff) | cutoff.le(0))
-            if invalid.any():
-                raise ValueError(f"{period.upper()} override cutoff_speed must be positive and finite")
-            assigned = cutoff.notna()
-            cutoff_updates = int(assigned.sum())
-            if "cutoff_speed" in frame:
-                merged["cutoff_speed"] = cutoff.where(assigned, merged["cutoff_speed"])
-            elif cutoff_updates:
-                merged["cutoff_speed"] = cutoff
-                output_columns.append("cutoff_speed")
-        merged = merged[output_columns]
+        merged = merged[frame.columns]
         period_backup = backup_root / period
         period_backup.mkdir(parents=True, exist_ok=False)
         backup_path = period_backup / "link.csv"
@@ -216,7 +196,6 @@ def apply_overrides(
                 "links": int(len(merged)),
                 "matched_links": int(len(merged)),
                 "changed_parameter_cells": changed_cells,
-                "assigned_cutoff_speeds": cutoff_updates,
                 "link_csv": str(link_path),
                 "pre_overlay_backup": str(backup_path),
                 "sha256_before": before_hash,
@@ -271,9 +250,6 @@ def validate_overrides(
             f"QVDF_{parameter}{sequence}": target
             for parameter, target in PARAMETER_COLUMNS.items()
         }
-        cutoff_key = CUTOFF_SPEED_KEYS[sequence - 1]
-        if cutoff_key in lookup.columns:
-            source_columns[cutoff_key] = "cutoff_speed"
         selected = lookup[["from_node_id", "to_node_id", *source_columns]].rename(
             columns={
                 source: f"expected_{target}"
@@ -300,15 +276,6 @@ def validate_overrides(
             if not np.isclose(actual, expected, atol=1e-9, rtol=1e-9).all():
                 raise ValueError(f"{period.upper()} {target} differs from QVDF dictionary")
             maximum_difference[target] = float(difference.max())
-
-        if cutoff_key in source_columns:
-            expected = merged["expected_cutoff_speed"].dropna()
-            if not expected.empty:
-                if "cutoff_speed" not in merged:
-                    raise ValueError(f"{period.upper()} cutoff_speed is missing")
-                actual = pd.to_numeric(merged.loc[expected.index, "cutoff_speed"], errors="coerce")
-                if not np.isclose(actual, expected, atol=1e-9, rtol=1e-9).all():
-                    raise ValueError(f"{period.upper()} cutoff_speed differs from QVDF dictionary")
 
         if not pd.to_numeric(merged["vdf_type"], errors="coerce").eq(2).all():
             raise ValueError(f"{period.upper()} vdf_type changed after overlay")

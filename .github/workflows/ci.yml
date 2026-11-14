@@ -42,10 +42,3 @@ jobs:
         run: python -m build
       - name: Validate distributions
         run: python -m twine check dist/*
-      - name: Attach distributions to the pull request build
-        if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4
-        with:
-          name: python-package-distributions
-          path: dist/
-          if-no-files-found: error

@@ -2,7 +2,7 @@
   "status": "PASS",
   "source_run": "NVTA-Phase-1-Boundary-Revised",
   "output_dictionary": "qvdf_node_pair_overrides.npy",
-  "output_sha256": "4B402663479F768CE55CC621E357D748C2EC8818ABF8146EEB65B5E8639B0B36",
+  "output_sha256": "F3B2BFD3ABF674444EBC933B3AA7CD6421EA0C6584F4156BB2E1AA239AE167E5",
   "previous_dictionary_sha256": "CFC0913E508D429D9DE3A9F63B8545AB1639F4225B75C6DF6085C55A52AF313F",
   "dictionary_node_pairs": 49336,
   "fields": [
@@ -13,8 +13,7 @@
     "cp",
     "cd",
     "alpha",
-    "beta",
-    "cutoff_speed (mph, optional)"
+    "beta"
   ],
   "bounds": {
     "plf": "[0.25 / period hours, 1]",
@@ -38,23 +37,20 @@
       "beta = n * s"
     ]
   },
-  "absent_period_policy": "Apply the bounds to the preceding period-specific dictionary values when the directed pair is absent. Cutoff speed remains optional.",
+  "absent_period_policy": "Apply the bounds to the preceding period-specific dictionary values when the directed pair is absent.",
   "periods": {
     "AM": {
       "links": 49329,
-      "cutoff_speed_links": 5802,
       "absent_period_pairs": 7,
       "source_sha256": "A24C5C05E01DDA399F32535F09F230C998A75789C8C35D29461540447F31B8AD"
     },
     "MD": {
       "links": 49336,
-      "cutoff_speed_links": 5802,
       "absent_period_pairs": 0,
       "source_sha256": "5B17C7F01473618C7D32D011731C1346EE451394AD2F0A3867909302D71A0B59"
     },
     "PM": {
       "links": 49329,
-      "cutoff_speed_links": 5802,
       "absent_period_pairs": 7,
       "source_sha256": "81D2D206BFB5E7677673FE0CC05E2C5920A7D77F8C83DA9DFF5844E393B92B0B"
     }

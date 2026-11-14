@@ -42,7 +42,6 @@ from .resources.congestion_t_node_pair_lookup.load_node_pair_boundaries import (
     lookup as lookup_base_boundaries,
     period_path as base_boundary_period_path,
 )
-from .qvdf_overrides import CUTOFF_SPEED_KEYS
 from .resources.observed_link_speed_boundary_lookup.load_observed_link_speed_boundaries import (
     lookup as lookup_observed_speed_boundaries,
     lookup_path as observed_speed_boundary_path,
@@ -166,12 +165,6 @@ def _load_dictionary(path: Path) -> dict[tuple[int, int], dict[str, float]]:
                 f"QVDF calibration entry {pair} is missing: {', '.join(sorted(missing))}"
             )
         result[pair] = {field: float(values[field]) for field in QVDF_FIELDS}
-        for field in CUTOFF_SPEED_KEYS:
-            if field in values:
-                cutoff = float(values[field])
-                if not np.isfinite(cutoff) or cutoff <= 0:
-                    raise ValueError(f"QVDF calibration entry {pair} has invalid {field}")
-                result[pair][field] = cutoff
     return result
 
 
@@ -1025,22 +1018,13 @@ def _load_expanded_dictionary(
     values = frame.loc[:, QVDF_FIELDS].apply(pd.to_numeric, errors="coerce")
     if values.isna().any().any() or not np.isfinite(values.to_numpy()).all():
         raise ValueError(f"{path} contains invalid QVDF values")
-    optional = tuple(field for field in CUTOFF_SPEED_KEYS if field in frame)
-    for field in optional:
-        raw = frame[field]
-        cutoff = pd.to_numeric(raw, errors="coerce")
-        if (raw.notna() & (~np.isfinite(cutoff) | cutoff.le(0))).any():
-            raise ValueError(f"{path} contains invalid {field}")
-        frame[field] = cutoff
     dictionary = {
         (int(row.future_a), int(row.future_b)): {
-            field: float(getattr(row, field))
-            for field in (*QVDF_FIELDS, *optional)
-            if pd.notna(getattr(row, field))
+            field: float(getattr(row, field)) for field in QVDF_FIELDS
         }
         for row in frame.itertuples(index=False)
     }
-    return dictionary, frame.drop(columns=[*QVDF_FIELDS, *optional])
+    return dictionary, frame.drop(columns=list(QVDF_FIELDS))
 
 
 def _write_expanded_dictionary(

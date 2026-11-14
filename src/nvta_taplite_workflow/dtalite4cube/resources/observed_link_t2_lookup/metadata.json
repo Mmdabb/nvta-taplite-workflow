@@ -1,17 +1,13 @@
 {
   "status": "PASS",
-  "scope": "observed T0/T2/T3",
-  "precedence": [
+  "created_utc": "2026-08-19T21:45:05.627368+00:00",
+  "hierarchy": [
     "actual direct",
     "virtual direct"
   ],
+  "no_episode_rule": "NaN triplet protects the direct matched link-period from completion",
   "actual_rows": 5581,
-  "virtual_rows": 298,
-  "combined_rows": 5879,
-  "overlapping_node_pairs": 0,
-  "actual_source": "10-network-qvdf/actual/observed-link-t2/observed_link_t2.npy",
-  "virtual_source": "10-network-qvdf/virtual/observed-link-t2/observed_link_t2.npy",
-  "time_unit": "decimal hour",
-  "source_run": "NVTA-Phase-1-Boundary-Revised",
-  "no_episode_rule": "NaN triplet protects the direct matched link-period from completion"
+  "virtual_rows": 221,
+  "combined_rows": 5802,
+  "lookup_sha256": "4A33C1A770DA317D532E82517D4DB303089CE4A3BDE5089C62035D25450153CA"
 }
