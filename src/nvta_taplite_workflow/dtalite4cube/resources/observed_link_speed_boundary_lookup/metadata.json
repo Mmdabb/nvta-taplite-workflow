@@ -1,47 +1,175 @@
 {
   "status": "PASS",
-  "created_utc": "2026-08-21T00:22:28.223851+00:00",
-  "policy": "retain baseline actual/virtual; replace only assignment fallbacks",
+  "created_utc": "2026-11-14T02:30:55.300390+00:00",
+  "format": "NumPy .npy structured array sorted by packed_key",
+  "key_definition": "(uint64(from_node_id) << 32) | uint64(to_node_id)",
+  "record_dtype": [
+    [
+      "packed_key",
+      "<u8"
+    ],
+    [
+      "from_node_id",
+      "<u4"
+    ],
+    [
+      "to_node_id",
+      "<u4"
+    ],
+    [
+      "qvdf_start_speed_mph_am",
+      "<f4"
+    ],
+    [
+      "qvdf_end_speed_mph_am",
+      "<f4"
+    ],
+    [
+      "qvdf_start_speed_mph_md",
+      "<f4"
+    ],
+    [
+      "qvdf_end_speed_mph_md",
+      "<f4"
+    ],
+    [
+      "qvdf_start_speed_mph_pm",
+      "<f4"
+    ],
+    [
+      "qvdf_end_speed_mph_pm",
+      "<f4"
+    ]
+  ],
   "speed_unit": "mph",
+  "boundary_minutes": {
+    "AM": [
+      360,
+      540
+    ],
+    "MD": [
+      540,
+      900
+    ],
+    "PM": [
+      900,
+      1140
+    ]
+  },
+  "hierarchy": [
+    "existing post-QC CBI weekday-average anchors for covered canonical winners",
+    "direct regional weekday-average boundary speeds for remaining canonical winners",
+    "stable assignment speed_mph anchors for non-canonical network pairs"
+  ],
   "assignment_boundary_logic": {
     "AM_start": "AM speed_mph",
     "AM_end_and_MD_start": "mean of available AM and MD speed_mph",
     "MD_end_and_PM_start": "mean of available MD and PM speed_mph",
-    "PM_end": "PM speed_mph",
-    "missing_adjacent_period_rule": "mean of the available adjacent value; blank only when both are missing",
-    "missing_terminal_period_rule": "closest available modeled period speed"
+    "PM_end": "PM speed_mph"
   },
-  "node_pairs": 49336,
-  "complete_six_boundaries": 49336,
-  "stage2_anchor_source_counts": {
-    "actual": 5581,
-    "stage1_assignment_speed_mph": 43534,
-    "virtual": 214,
-    "virtual_partial_assignment_fallback": 7
+  "counts": {
+    "network_node_pairs": 49336,
+    "canonical_winner_pairs": 5879,
+    "canonical_existing_cbi_observed_pairs": 5879,
+    "canonical_regional_direct_pairs": 0,
+    "canonical_virtual_direct_pairs": 13,
+    "assignment_fallback_noncanonical_pairs": 43457,
+    "canonical_pairs_with_all_six_boundaries": 5879,
+    "network_pairs_with_all_six_boundaries": 49322
   },
   "sources": {
-    "stage1_assignment": "auto-cal-v1-mode2-hybrid-pass1/assignment",
-    "baseline_lookup": {
-      "path": "baseline/observed_link_speed_boundaries.npy",
-      "sha256": "54B9CD59A6CEB5825382F17CEA3C10BFEE78CCDABEFDB188CB616C9A8F31D97E"
+    "canonical_mapping": {
+      "path": "canonical_node_pair_tmc.csv",
+      "sha256": "720CF2F643B294C1BC66AD9A3EB4B0CD3A4B21803081664C3E63493AD1E1234E"
     },
-    "baseline_audit": {
-      "path": "baseline/hybrid_speed_boundary_audit.csv",
-      "sha256": "1521590D9DF7750FEAC809B167F746BF643AB738AD5ABAC4BAC1B6E97F1ABCD0"
+    "regional_readings": {
+      "path": "Readings.csv",
+      "sha256": "615E5C9663C0A9AFF6734E2D7BA6A36F4B898C52E2E43B98BCD97A1404BA9841"
+    },
+    "virtual_corridor_inputs": "cbi-corridors",
+    "existing_observed_lookup": {
+      "path": "observed_link_speed_boundaries.npy",
+      "sha256": "9699442C3761C9750664C8E16DB0B72F81065F8B7CCEAC76531B1025A8BCA7E8"
+    },
+    "stable_assignment": {
+      "AM": {
+        "path": "first-pass/assignment/am/link_performance.csv",
+        "sha256": "B047DF5E33051E5A4D943BE94125CBBC08FF33ACD695099E1EC1C72D7BD3C212"
+      },
+      "MD": {
+        "path": "first-pass/assignment/md/link_performance.csv",
+        "sha256": "35DBFEA4AED6D98DB70F06B7CBDB8C5B626E6FB84B0B26771EBEB5AB9F5FD172"
+      },
+      "PM": {
+        "path": "first-pass/assignment/pm/link_performance.csv",
+        "sha256": "D2CC0FA0CFC388399789CB96E66D18ABDA26274F6446517C8C8A066411EFDE89"
+      }
     }
   },
   "products": {
     "lookup": {
       "path": "observed_link_speed_boundaries.npy",
-      "sha256": "5B33E5F7E4C13F4F2AB261B45BDCF6BDBE9447A567BAC786FEBEE13EAA6EF4AA"
+      "sha256": "FAE44F001FAA95EFD50B037B23F67AA67CB040A102F0B31C12B08402535658B7"
     },
     "audit": {
       "path": "hybrid_speed_boundary_audit.csv",
-      "sha256": "F8902D8BB13967B4CE85C369D97830AF2766D50475BF667DEFF8DD2D38D7AE60"
+      "sha256": "9725AA0861FAD21A02A9A9C3E21AF9FE9616E3A20DADD78215E8056A95708CBB"
     },
     "completeness": {
       "path": "boundary_completeness_report.csv",
-      "sha256": "2B7F680732FF811E1F3908540E517413498966A64F234BDC1DE973AFEDE80520"
+      "sha256": "A4E8CE027AD37C7DDE387D55C82271DD5FAFFC09F2B9A6CDD1C194CE0689D887"
     }
-  }
+  },
+  "installation": null,
+  "periods": {
+    "AM": {
+      "boundary_status_counts": {
+        "both": 49329,
+        "end_only": 7
+      },
+      "start_source_counts": {
+        "stable_assignment_speed_mph": 43450,
+        "existing_cbi_observed_weekday_average": 5879,
+        "stable_assignment_period_link_absent": 7
+      },
+      "end_source_counts": {
+        "stable_assignment_speed_mph": 43457,
+        "existing_cbi_observed_weekday_average": 5877,
+        "virtual_pre_qc_weekday_average": 2
+      }
+    },
+    "MD": {
+      "boundary_status_counts": {
+        "both": 49336
+      },
+      "start_source_counts": {
+        "stable_assignment_speed_mph": 43457,
+        "existing_cbi_observed_weekday_average": 5877,
+        "virtual_pre_qc_weekday_average": 2
+      },
+      "end_source_counts": {
+        "stable_assignment_speed_mph": 43457,
+        "existing_cbi_observed_weekday_average": 5876,
+        "virtual_pre_qc_weekday_average": 3
+      }
+    },
+    "PM": {
+      "boundary_status_counts": {
+        "both": 49329,
+        "start_only": 7
+      },
+      "start_source_counts": {
+        "stable_assignment_speed_mph": 43457,
+        "existing_cbi_observed_weekday_average": 5876,
+        "virtual_pre_qc_weekday_average": 3
+      },
+      "end_source_counts": {
+        "stable_assignment_speed_mph": 43450,
+        "existing_cbi_observed_weekday_average": 5871,
+        "virtual_pre_qc_weekday_average": 8,
+        "stable_assignment_period_link_absent": 7
+      }
+    }
+  },
+  "source_run": "NVTA-Phase-1-Boundary-Revised"
 }

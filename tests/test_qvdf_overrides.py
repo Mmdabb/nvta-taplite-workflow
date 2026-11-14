@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from nvta_taplite_workflow.dtalite4cube.qvdf_overrides import PARAMETER_COLUMNS, apply_overrides
+from nvta_taplite_workflow.dtalite4cube.qvdf_overrides import PARAMETER_COLUMNS, apply_overrides, validate_overrides
 
 
 class QvdfOverrideTests(unittest.TestCase):
@@ -96,6 +96,25 @@ class QvdfOverrideTests(unittest.TestCase):
             self.assertEqual(
                 saved_manifest["skipped_period_policy"],
                 "retain normal network-converter QVDF mapping",
+            )
+
+    def test_optional_cutoff_speed_leaves_unlisted_links_at_their_mapped_value(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            assignment_root, dictionary_path = self._write_inputs(root)
+            path = assignment_root / "am" / "link.csv"
+            frame = pd.read_csv(path)
+            frame["cutoff_speed"] = [42.0, 51.0]
+            frame.to_csv(path, index=False)
+            dictionary = np.load(dictionary_path, allow_pickle=True).item()
+            dictionary[(10, 20)]["QVDF_cutoff_speed1"] = 46.858
+            np.save(dictionary_path, dictionary, allow_pickle=True)
+
+            apply_overrides(assignment_root, dictionary_path, root / "backup", periods=["am"])
+            self.assertEqual(pd.read_csv(path)["cutoff_speed"].tolist(), [46.858, 51.0])
+            self.assertEqual(
+                validate_overrides(assignment_root, dictionary_path, periods=["am"])["status"],
+                "PASS",
             )
 
     def test_override_rejects_incomplete_directed_pair_coverage(self):
