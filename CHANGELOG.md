@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0rc9 - 2026-11-13
+
+- Package the bounded Phase 1 QVDF parameters, regenerated hybrid speed
+  anchors for profile mode 2.
+
 ## 0.1.0rc8 - 2026-11-05
 
 - Add jurisdiction and regional single-row-per-link hourly speed and
