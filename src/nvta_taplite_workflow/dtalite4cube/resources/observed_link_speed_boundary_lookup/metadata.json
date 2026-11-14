@@ -1,6 +1,6 @@
 {
   "status": "PASS",
-  "created_utc": "2026-11-14T02:30:55.300390+00:00",
+  "created_utc": "2026-11-13T19:30:55.30039-07:00",
   "format": "NumPy .npy structured array sorted by packed_key",
   "key_definition": "(uint64(from_node_id) << 32) | uint64(to_node_id)",
   "record_dtype": [
@@ -109,8 +109,7 @@
   "products": {
     "lookup": {
       "path": "observed_link_speed_boundaries.npy",
-      "sha256": "CDF99BBA77A6BBA76A93B58EBAD33ED67E1AACEB672E77063673E21FB79A34B7",
-      "source_sha256": "FAE44F001FAA95EFD50B037B23F67AA67CB040A102F0B31C12B08402535658B7"
+      "sha256": "FAE44F001FAA95EFD50B037B23F67AA67CB040A102F0B31C12B08402535658B7"
     },
     "audit": {
       "path": "hybrid_speed_boundary_audit.csv",
